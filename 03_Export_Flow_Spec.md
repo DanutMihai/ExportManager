@@ -235,30 +235,30 @@ A new Office Script. Contract:
   "requests": [ { …one object per Order List item, allow-listed columns only… } ],
   "typeMap": [
     { "type": "New SIM",     "sheet": "New SIM",
-      "context": ["SIMType","Plan Name","VR Compatible","Delivery Address","Location"],
+      "context": ["SIMType","PlanName","VRCompatible","DeliveryAddress","Location"],
       "fill":    ["PhoneNr","ICCID","StartDate"] },
 
     { "type": "Terminate",   "sheet": "Terminate",
-      "context": ["PhoneNr","ICCID","simInventoryID","Plan Name"],
+      "context": ["PhoneNr","ICCID","simInventoryID","PlanName"],
       "fill":    ["EffectiveDate"] },
 
     { "type": "Swap",        "sheet": "Swap",
-      "context": ["PhoneNr","Current ICCID","SIMType","newSimType","simInventoryID","Delivery Address"],
+      "context": ["PhoneNr","Current ICCID","SIMType","newSimType","simInventoryID","DeliveryAddress"],
       "fill":    ["New ICCID","EffectiveDate"] },
 
     { "type": "Transfer",    "sheet": "Transfer",
-      "context": ["PhoneNr","ICCID","simInventoryID","TransferdTo","Plan Name"],
+      "context": ["PhoneNr","ICCID","simInventoryID","TransferdTo","PlanName"],
       "fill":    ["EffectiveDate"] },
 
     { "type": "Change plan", "sheet": "Change plan",
-      "context": ["PhoneNr","ICCID","simInventoryID","Plan Name","New Plan"],
+      "context": ["PhoneNr","ICCID","simInventoryID","PlanName","NewPlan"],
       "fill":    ["EffectiveDate"] }
   ]
 }
 ```
 
 Every sheet also carries a protected identity block ahead of the context columns: `RequestID`,
-`Request Type`, `GDID`, `Requested for`, `Provider`, `Ticket_ID`.
+`RequestType`, `GDID`, `Requestedfor`, `Provider`, `Ticket_ID`.
 
 `Delegate` is absent deliberately — internal only, never goes to a provider.
 
@@ -277,11 +277,11 @@ Full mapping and the reasoning in `04_Order_List_Schema.md`.
 `_Meta` costs nothing now and is what lets the return-leg import tell a current file from a stale
 one. Retrofitting it means asking providers to adopt a new format.
 
-> **Still needed before this can be built:** the **internal names** for the spaced columns
-> (`Request Type`, `Plan Name`, `Requested for`, `VR Compatible`, `Delivery Address`, `New Plan`),
-> the exact `Request Type` choice values, and the `OrderStatus` value that means approved.
-> `04_Order_List_Schema.md` has the query and explains why guessing the internal names silently
-> exports empty columns.
+> **Internal names confirmed** — see `04_Order_List_Schema.md`. There are no `_x0020_` names;
+> `Request Type` is `RequestType`, `Plan Name` is `PlanName`, `Requested for` is `Requestedfor`.
+>
+> **Still needed:** the exact `RequestType` choice values (they become the tab names and the
+> `type` keys above) and the `OrderStatus` value that means approved.
 >
 > **And a decision:** four of the five provider-facing types need a date back that isn't a start
 > date, and the list has no column for it. See §3 of `04_Order_List_Schema.md`.
@@ -387,7 +387,7 @@ way runs are actually going.
 
 ## Still needed
 
-1. **Internal names** for the columns whose display names contain spaces — see the query in `04_Order_List_Schema.md`
-2. **The exact `Request Type` choice values** — they become the tab names
+1. ~~Internal names~~ — **confirmed**, see `04_Order_List_Schema.md`
+2. **The exact `RequestType` choice values** — they become the tab names
 3. **The `OrderStatus` value meaning approved** — `Approved`, or something longer
 4. **A decision on the missing date column** — §3 of `04_Order_List_Schema.md`

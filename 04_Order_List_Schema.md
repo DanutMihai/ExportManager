@@ -4,35 +4,61 @@ List GUID `e390b86b-13bb-4655-b3e6-efd5bd068279`.
 
 ---
 
-## Columns
+## Columns — internal names are authoritative
 
-| Display name | Type | Role in the export |
-|---|---|---|
-| `CountryName` | Single line of text | **Export filter.** Index this. |
-| `OrderStatus` | Choice | **Export filter** — `Approved`. Index this. |
-| `Request Type` | Choice | **Drives the tab.** Its values become the sheet names. |
-| `GDID` | Single line of text | Employee identifier — goes to the provider |
-| `Requested by` | Single line of text | The requester |
-| `Requested for` | Single line of text | The beneficiary — distinct from the requester and the one the provider cares about |
-| `PhoneNr` | Single line of text | **Provider fills** on New SIM; known already on other types |
-| `ICCID` | Single line of text | **Provider fills** on New SIM and Swap |
-| `IMEI` | Single line of text | Usually device-side, not provider |
-| `StartDate` | Single line of text | **Provider fills** on New SIM |
-| `SIMType` | Choice | eSIM / Physical — the current type |
-| `newSimType` | Single line of text | Swap target type — known at request time |
-| `Provider` | Single line of text | Which provider the sheet goes to |
-| `Plan Name` | Single line of text | Current plan |
-| `New Plan` | Single line of text | Change-plan target — known at request time |
-| `VR Compatible` | Yes/No | |
-| `Delivery Address` | Single line of text | Where the physical SIM ships |
-| `Location` | Single line of text | |
-| `simInventoryID` | Single line of text | Link back to the inventory row — the key for Terminate / Swap / Transfer / Change plan |
-| `TransferdTo` | **Person or Group** | Transfer target |
-| `LineManager` | Single line of text | |
-| `Justification` | Single line of text | Internal — not for the provider |
-| `Ticket_ID`, `Bulk_ID`, `NGCC_SNOW_TICKET_ID` | Single line of text | Reference numbers |
-| `WorkHistory` | Multiple lines of text | Internal audit trail — **never export** |
-| `ApprovalPlanJson` | Multiple lines of text | Internal — **never export** |
+Confirmed from the list schema. **No `_x0020_` anywhere** — every spaced column was created
+without the space and renamed afterwards, so SharePoint kept the original internal name.
+`Request_x0020_Type` does not exist and would have exported empty without erroring.
+
+| Internal name | Display name | Type | Export? | Role |
+|---|---|---|---|---|
+| `Title` | Title | Text | – | |
+| `CountryName` | CountryName | Text | filter | **Export filter.** Index. |
+| `OrderStatus` | OrderStatus | **Choice** | filter | **Export filter** — approved. Index. |
+| `RequestType` | Request Type | **Choice** | ✔ | **Drives the tab.** |
+| `GDID` | GDID | Text | ✔ | Employee identifier |
+| `Requestedby` | Requested by | Text | – | Internal |
+| `Requestedfor` | Requested for | Text | ✔ | The beneficiary — what the provider needs |
+| `PhoneNr` | PhoneNr | Text | ✔ | Provider **fills** on New SIM |
+| `ICCID` | ICCID | Text | ✔ | Provider **fills** on New SIM and Swap |
+| `IMEI` | IMEI | Text | – | Device-side |
+| `StartDate` | StartDate | Text | ✔ | Provider **fills** on New SIM |
+| `SIMType` | SIMType | **Choice** | ✔ | Current type |
+| `newSimType` | newSimType | Text | ✔ | Swap target |
+| `Provider` | Provider | Text | ✔ | Which provider gets the sheet |
+| `PlanName` | Plan Name | Text | ✔ | Current plan |
+| `NewPlan` | New Plan | Text | ✔ | Change-plan target |
+| `VRCompatible` | VR Compatible | **Boolean** | ✔ | Render as Yes/No, not true/false |
+| `DeliveryAddress` | Delivery Address | Text | ✔ | Where a physical SIM ships |
+| `Location` | Location | Text | ✔ | |
+| `simInventoryID` | simInventoryID | Text | ✔ | Link to the inventory row |
+| `TransferdTo` | TransferdTo | **User** | ✔ | Transfer target |
+| `LineManager` | LineManager | Text | – | Internal |
+| `Justification` | Justification | Text | – | Internal, free text |
+| `Ticket_ID` | Ticket_ID | Text | ✔ | Reference |
+| `Bulk_ID` | Bulk_ID | Text | – | Internal grouping |
+| `NGCC_SNOW_TICKET_ID` | NGCC_SNOW_TICKET_ID | Text | – | Internal reference |
+| `WorkHistory` | WorkHistory | Note | ✖ **never** | Internal audit trail |
+| `ApprovalPlanJson` | ApprovalPlanJson | Note | ✖ **never** | Internal |
+
+### Four columns need special handling in the Select
+
+Three Choice columns and one User column do **not** return plain strings:
+
+```
+"requestType": "@{item()?['RequestType']?['Value']}"
+"orderStatus": "@{item()?['OrderStatus']?['Value']}"
+"simType":     "@{item()?['SIMType']?['Value']}"
+"transferdTo": "@{item()?['TransferdTo']?['DisplayName']}"
+"vrCompatible":"@{if(item()?['VRCompatible'],'Yes','No')}"
+```
+
+Without `?['Value']` a Choice column serialises as an object and lands in the sheet as
+`[object Object]` or JSON. `VRCompatible` is a real Boolean, so `true`/`false` reaches the
+provider unless converted — Yes/No is what a human expects.
+
+On the return leg, `TransferdTo` needs `TransferdToId` with a numeric user ID, never a display
+name.
 
 ---
 
@@ -84,26 +110,26 @@ Provider-facing types only. `Delegate` is internal and never leaves the building
 Every sheet carries the same protected identity block, then type-specific context, then the
 fill-in columns.
 
-**Protected on every sheet:** `RequestID` (the item ID), `Request Type`, `GDID`,
-`Requested for`, `Provider`, `Ticket_ID`
+**Protected on every sheet:** `RequestID` (the item ID), `RequestType`, `GDID`,
+`Requestedfor`, `Provider`, `Ticket_ID`
 
 ### New SIM
 
 | Context (protected) | Provider fills (unlocked, validated) |
 |---|---|
-| `SIMType`, `Plan Name`, `VR Compatible`, `Delivery Address`, `Location` | `PhoneNr`, `ICCID`, `StartDate` |
+| `SIMType`, `PlanName`, `VRCompatible`, `DeliveryAddress`, `Location` | `PhoneNr`, `ICCID`, `StartDate` |
 
 ### Terminate
 
 | Context | Provider fills |
 |---|---|
-| `PhoneNr`, `ICCID`, `simInventoryID`, `Plan Name` | `EffectiveDate` *(pending the decision above)* |
+| `PhoneNr`, `ICCID`, `simInventoryID`, `PlanName` | `EffectiveDate` *(pending the decision above)* |
 
 ### Swap
 
 | Context | Provider fills |
 |---|---|
-| `PhoneNr`, `ICCID` (old), `SIMType` (current), `newSimType` (target), `simInventoryID`, `Delivery Address` | `ICCID` (new), `EffectiveDate` |
+| `PhoneNr`, `ICCID` (old), `SIMType` (current), `newSimType` (target), `simInventoryID`, `DeliveryAddress` | `ICCID` (new), `EffectiveDate` |
 
 Two `ICCID` columns on one sheet — the old one protected, the new one blank and unlocked. Header
 them **`Current ICCID`** and **`New ICCID`** so nobody has to guess.
@@ -112,9 +138,9 @@ them **`Current ICCID`** and **`New ICCID`** so nobody has to guess.
 
 | Context | Provider fills |
 |---|---|
-| `PhoneNr`, `ICCID`, `simInventoryID`, `TransferdTo` (display name), `Plan Name` | `EffectiveDate` |
+| `PhoneNr`, `ICCID`, `simInventoryID`, `TransferdTo` (DisplayName), `PlanName` | `EffectiveDate` |
 
-`TransferdTo` is a **Person or Group** column — the only one on this list. Reading it gives an
+`TransferdTo` is a **User** column — the only one on this list. Reading it gives an
 object, so export `TransferdTo.DisplayName` (or `.Email`), never the raw field. On the return
 leg, writing to it needs `TransferdToId` with a numeric user ID, not a display string.
 
@@ -122,7 +148,7 @@ leg, writing to it needs `TransferdToId` with a numeric user ID, not a display s
 
 | Context | Provider fills |
 |---|---|
-| `PhoneNr`, `ICCID`, `simInventoryID`, `Plan Name` (current), `New Plan` (target) | `EffectiveDate` |
+| `PhoneNr`, `ICCID`, `simInventoryID`, `PlanName` (current), `NewPlan` (target) | `EffectiveDate` |
 
 ---
 
@@ -140,19 +166,17 @@ being sent, which is the safe direction.
 
 ## Still needed
 
-**Internal names.** The screenshot gives display names; expressions need internal names, and for
-columns with spaces those are usually `Requested_x0020_by`, `Request_x0020_Type` and so on —
-**usually**, but not reliably. SharePoint derives the internal name from whatever the column was
-called when it was *created*, so a column created as `RequestType` and later renamed to
-`Request Type` keeps `RequestType`. Guessing is how a field silently exports empty.
+✅ **Internal names — confirmed.** See the table above. Every guess would have been wrong.
 
-```
-_api/web/lists(guid'e390b86b-13bb-4655-b3e6-efd5bd068279')/fields?$select=Title,InternalName,TypeAsString&$filter=Hidden eq false and ReadOnlyField eq false
-```
-
-**The `Request Type` choice values, exactly as spelled.** They become the tab names and the keys
+**The `RequestType` choice values, exactly as spelled.** They become the tab names and the keys
 in the script's `typeMap`. `New SIM` vs `New Sim` vs `New SIM Request` matters — an unmatched
 value lands in the `Unmapped` tab.
 
 **The `OrderStatus` value for approved** — `Approved`, or something longer like
 `Approved by Line Manager`.
+
+Both are choice *values*, which the schema dump doesn't include. Quickest way to get them:
+
+```
+_api/web/lists(guid'e390b86b-13bb-4655-b3e6-efd5bd068279')/fields?$filter=InternalName eq 'RequestType' or InternalName eq 'OrderStatus'&$select=InternalName,Choices
+```
