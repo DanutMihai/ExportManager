@@ -71,6 +71,7 @@ Root level only.
 | `varLogItemId` | Integer | `0` |
 | `varPage` | Integer | `0` |
 | `varHasMore` | Boolean | `true` |
+| `varItems` | Array | `[]` |
 
 ### 2a. `Compose Flow Identity`
 
@@ -128,25 +129,62 @@ Respond **before** terminating, or PowerApps waits until it times out and the us
 
 This is what makes the fast path fast.
 
-**`Get items probe`** — SharePoint Get items
+#### Switch, not one dynamic Get items
 
-| Field | Inventory | Requests |
-|---|---|---|
-| List | Global SIM Inventory | Global Order List |
-| Filter Query | `SIM_Country eq '@{replace(triggerBody()?['text'],'''','''''')}'` | `CountryName eq '@{replace(triggerBody()?['text'],'''','''''')}' and OrderStatus eq 'Approved'` |
-| Top Count | `@{add(outputs('Compose_threshold'),1)}` | same |
-| Pagination | **OFF** | **OFF** |
-| Limit Columns by View | a view with only the columns you export | same |
+`Get items` accepts an expression in its List Name field, so a single action *can* serve both
+lists. Don't. Three things break:
 
-Use a `Switch` on `ExportType` with a Get items in each case, or one Get items whose list is set
-by an expression — the Switch is clearer to debug.
+- **Design-time schema disappears.** Power Automate infers the dynamic-content shape from the
+  selected list. Point it at an expression and it can't, so every downstream `item()?['ICCID']`
+  loses IntelliSense and validation. It still runs — it just stops telling you when you typo a
+  column name, which on a list with `Requestedby` and `Requestedfor` is exactly when you want to
+  be told.
+- **The filter differs anyway.** `SIM_Country eq …` versus `CountryName eq … and OrderStatus eq …`
+  needs an `if()` regardless, so the "one action" isn't simpler, just denser.
+- **Limit Columns by View is per-list.** A view belongs to one list; the picker can't validate a
+  dynamic one, so you'd be typing a view name blind.
 
-**`Compose probe count`** — `length(body('Get_items_probe')?['value'])`
+**`Switch on ExportType`** with a Get items per case, each converging into the same variable:
 
-Fetching `threshold + 1` answers "is this big?" **and** returns the whole dataset when it isn't.
-Under the threshold, that one call is the only read the flow makes. Over it, you've spent one
-cheap call to learn you need the paged path — and nobody is waiting by then, because the response
-has already gone back to the app.
+| Case | Action | List | Filter Query |
+|---|---|---|---|
+| `Inventory` | `Get inventory probe` | Global SIM Inventory | `SIM_Country eq '@{replace(triggerBody()?['text'],,'')}'` |
+| `Requests` | `Get requests probe` | Global Order List | `CountryName eq '@{replace(triggerBody()?['text'],,'')}' and OrderStatus eq 'Approved'` |
+
+Both cases: **Top Count** `@{add(outputs('Compose_threshold'),1)}`, **Pagination OFF**,
+**Limit Columns by View** set to a view holding only the exported columns.
+
+Last action in each case:
+
+```
+Set varItems  =  body('Get_inventory_probe')?['value']     // Inventory case
+Set varItems  =  body('Get_requests_probe')?['value']      // Requests case
+```
+
+Add `varItems` (Array, empty) to the §2 table.
+
+**`Compose probe count`** — `length(variables('varItems'))`
+
+#### Why converge into a variable
+
+Everything after this point works off `variables('varItems')` and is written **once**. Without
+the convergence, `body('Get_inventory_probe')` and `body('Get_requests_probe')` are different
+references, so the size branch, the No-data check, the logging and the response would all have to
+exist twice — and those are the parts that are fiddly to get right and expensive to keep in step.
+
+The parts that genuinely differ by export type — which list to read, which template to copy,
+which script to run — are small and belong in switches. The shared machinery shouldn't be.
+
+Cost: an array variable holding up to `threshold + 1` items. At 2,001 rows that's nothing. The
+async path does **not** reuse it — see §4d, where the full paged fetch feeds the script directly
+rather than through a variable, because 60,000 items in a variable is a different proposition.
+
+#### Why fetch threshold + 1
+
+It answers "is this big?" **and** returns the whole dataset when it isn't. Under the threshold,
+that one call is the only read the flow makes. Over it, you've spent one cheap call to learn you
+need the paged path — and nobody is waiting by then, because the response has already gone back
+to the app.
 
 ### 4c. `No data` — Condition on `equals(outputs('Compose_probe_count'), 0)`
 
@@ -168,7 +206,7 @@ Two refinements worth adding once the basics work, both from `01_Edge_Cases.md`:
 
 #### YES — synchronous path
 
-1. Build the file from `body('Get_items_probe')?['value']` — §5
+1. Build the file from `variables('varItems')` — §5
 2. `Set varStatus` = `Completed`
 3. LOG 2 — §6
 4. `Respond to a PowerApp` with the URL — §7
@@ -178,7 +216,9 @@ Two refinements worth adding once the basics work, both from `01_Edge_Cases.md`:
 1. `Set varStatus` = `Queued`
 2. `Set varMessage` = `concat('Export of ', outputs('Compose_probe_count'), '+ rows started. You will receive an email when it is ready.')`
 3. **`Respond to a PowerApp` immediately** — the app unblocks here and the user carries on
-4. `Get items full` — same filter, Top Count `5000`, **Pagination ON**, threshold `100000`
+4. `Get inventory full` / `Get requests full` — same Switch, same filters, Top Count `5000`,
+   **Pagination ON**, threshold `100000`. Feed the script directly from `body(...)?['value']`;
+   do **not** route 60,000 items through a variable.
 5. Build the file — §5
 6. `Set varStatus` = `Completed`
 7. LOG 2
