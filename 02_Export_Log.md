@@ -1,7 +1,21 @@
 # SIM Export Log — list schema and logging points
 
 List: **SIM Export Log**. One item per export run. Same shape as the import log in
-`../SIM Inventory/Logging_System.md`, so both read the same way.
+`../SIM Inventory/Logging_System.md`, so both read the same way — but this is a **new flow built
+from scratch**; nothing is inherited from the import flow.
+
+**Actions this document references, all defined in `03_Export_Flow_Spec.md`:**
+
+| Reference | Defined in | What it is |
+|---|---|---|
+| `outputs('Compose_Flow_Identity')` | §2a | Compose holding the run's URL |
+| `outputs('Compose_threshold')` | §2c | the sync/async row threshold |
+| `body('Create_log_item')` | §3 | this list's Create item, for the returned `ID` |
+| `result('Scope_-_Main')` | §8 | the main Scope, for the catch path |
+| every `variables('var…')` | §2 | the variable table |
+
+If you rename any of those actions, the expressions here break — Power Automate resolves them by
+name.
 
 ---
 
@@ -101,7 +115,7 @@ blank is written as blank.
 | Finished | `@{utcNow()}` |
 | Rows_Exported | `@{variables('varRowsExported')}` |
 | Sheet_Breakdown | `@{variables('varSheetBreakdown')}` |
-| Delivery | `@{if(greater(variables('varRowsExported'),2000),'Emailed','Link returned')}` |
+| Delivery | `@{if(greater(variables('varRowsExported'),outputs('Compose_threshold')),'Emailed','Link returned')}` |
 | ExportFile Url | `@{variables('varFileUrl')}` — empty when `No data` |
 | ExportFile Description | `@{variables('varFileName')}` |
 | Notes | summary, or the reason for `No data` |

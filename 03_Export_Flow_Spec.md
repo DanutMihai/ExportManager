@@ -17,12 +17,19 @@ One flow, two export types, three delivery outcomes.
 **Naming.** Power Automate turns spaces into underscores in expressions: an action named
 `Get inventory` is `body('Get_inventory')`. Use these names exactly.
 
+**No parentheses in action names.** `Get items (probe)` becomes `body('Get_items_(probe)')`,
+which is fragile and easy to mistype. Every action here is named without them.
+
+**This flow shares no actions with the import flow.** It is built from scratch, so anything
+`02_Export_Log.md` references — `Compose Flow Identity`, `Create log item`, `Scope - Main` — is
+defined in this document, not inherited.
+
 ---
 
 ## 0. Prerequisites
 
-**Index the filter columns.** On Global SIM Inventory: `SIM_Country`. On Global Order List: the
-country column and the status column. Without indexes, a filtered `Get items` fails past 5,000
+**Index the filter columns.** On Global SIM Inventory: `SIM_Country`. On Global Order List:
+`CountryName` and `OrderStatus`. Without indexes, a filtered `Get items` fails past 5,000
 items with the list view threshold error.
 
 **Create `/SIM Exports/Files`** as a document library. Grant read to whoever will click the
@@ -80,11 +87,22 @@ concat(formatDateTime(variables('varStartedUtc'),'yyyy-MM-dd_HH-mm-ss'),'_',repl
 Then `Set varFileName` from it. The RunId slice makes filename collisions impossible; the
 `replace` handles countries with spaces.
 
+### 2c. `Compose threshold`
+
+```
+2000
+```
+
+The row count at which delivery switches from synchronous to email. Referenced by §4b, §4d and
+the log's `Delivery` field as `outputs('Compose_threshold')` — one place to change it after you
+see real timings, rather than three literals scattered through conditions.
+
 ---
 
-## 3. LOG 1 — Create item · `Running`
+## 3. LOG 1 — `Create log item` · `Running`
 
-Per `02_Export_Log.md`. Then `Set varLogItemId` = `body('Create_log_item')?['ID']`.
+SharePoint **Create item**, named exactly `Create log item` — `02_Export_Log.md` references it as
+`body('Create_log_item')`. Field values are in that document. Then `Set varLogItemId` = `body('Create_log_item')?['ID']`.
 
 On the **next** action set *Configure run after* to include **has failed** and **is skipped** — a
 logging hiccup must not block an export.
@@ -110,13 +128,13 @@ Respond **before** terminating, or PowerApps waits until it times out and the us
 
 This is what makes the fast path fast.
 
-**`Get items (probe)`** — SharePoint Get items
+**`Get items probe`** — SharePoint Get items
 
 | Field | Inventory | Requests |
 |---|---|---|
 | List | Global SIM Inventory | Global Order List |
-| Filter Query | `SIM_Country eq '@{replace(triggerBody()?['text'],'''','''''')}'` | `<CountryCol> eq '…' and <StatusCol> eq 'Approved'` |
-| Top Count | `2001` | `2001` |
+| Filter Query | `SIM_Country eq '@{replace(triggerBody()?['text'],'''','''''')}'` | `CountryName eq '@{replace(triggerBody()?['text'],'''','''''')}' and OrderStatus eq 'Approved'` |
+| Top Count | `@{add(outputs('Compose_threshold'),1)}` | same |
 | Pagination | **OFF** | **OFF** |
 | Limit Columns by View | a view with only the columns you export | same |
 
@@ -146,7 +164,7 @@ Two refinements worth adding once the basics work, both from `01_Edge_Cases.md`:
 - Approved requests exist but all are internal types (Delegate) → *"3 approved requests, none require provider action."*
 - Distinguishing that from a genuine zero matters to the admin, and the two messages read very differently.
 
-### 4d. Size branch — Condition on `lessOrEquals(outputs('Compose_probe_count'), 2000)`
+### 4d. Size branch — Condition on `lessOrEquals(outputs('Compose_probe_count'), outputs('Compose_threshold'))`
 
 #### YES — synchronous path
 
@@ -160,7 +178,7 @@ Two refinements worth adding once the basics work, both from `01_Edge_Cases.md`:
 1. `Set varStatus` = `Queued`
 2. `Set varMessage` = `concat('Export of ', outputs('Compose_probe_count'), '+ rows started. You will receive an email when it is ready.')`
 3. **`Respond to a PowerApp` immediately** — the app unblocks here and the user carries on
-4. `Get items (full)` — same filter, Top Count `5000`, **Pagination ON**, threshold `100000`
+4. `Get items full` — same filter, Top Count `5000`, **Pagination ON**, threshold `100000`
 5. Build the file — §5
 6. `Set varStatus` = `Completed`
 7. LOG 2
@@ -197,6 +215,10 @@ Reuse what already works. `Shape inventory` (Select) → `Do until pages` → **
 Payload per the existing contract: `tableName: Table_query`, `columnsCsv` naming the 20 data
 columns, `spareRows: 200`, `repairFormulas: true`.
 
+Note the inventory list calls it `ICC_ID`; the Order List calls the same thing `ICCID`. Nothing
+in this branch touches the Order List, but the return-leg import will and a copy-pasted field
+map will write nothing.
+
 **Rows are written, formulas and validation come from the template.** Nothing new to build here.
 
 ### 5c. Requests branch — `BuildRequestSheets`
@@ -210,22 +232,37 @@ A new Office Script. Contract:
   "country": "Romania",
   "runId": "…",
   "exportedUtc": "2026-08-13T14:22:00Z",
-  "requests": [ { …one object per Order List item… } ],
+  "requests": [ { …one object per Order List item, allow-listed columns only… } ],
   "typeMap": [
-    { "type": "New SIM",     "sheet": "New SIM",     "fill": ["PhoneNr","ICC_ID","StartDate"] },
-    { "type": "Terminate",   "sheet": "Terminate",   "fill": ["TerminationDate"] },
-    { "type": "Swap",        "sheet": "Swap",        "fill": ["ICC_ID","EffectiveDate"] },
-    { "type": "Transfer",    "sheet": "Transfer",    "fill": ["EffectiveDate"] },
-    { "type": "Change plan", "sheet": "Change plan", "fill": ["EffectiveDate"] }
+    { "type": "New SIM",     "sheet": "New SIM",
+      "context": ["SIMType","Plan Name","VR Compatible","Delivery Address","Location"],
+      "fill":    ["PhoneNr","ICCID","StartDate"] },
+
+    { "type": "Terminate",   "sheet": "Terminate",
+      "context": ["PhoneNr","ICCID","simInventoryID","Plan Name"],
+      "fill":    ["EffectiveDate"] },
+
+    { "type": "Swap",        "sheet": "Swap",
+      "context": ["PhoneNr","Current ICCID","SIMType","newSimType","simInventoryID","Delivery Address"],
+      "fill":    ["New ICCID","EffectiveDate"] },
+
+    { "type": "Transfer",    "sheet": "Transfer",
+      "context": ["PhoneNr","ICCID","simInventoryID","TransferdTo","Plan Name"],
+      "fill":    ["EffectiveDate"] },
+
+    { "type": "Change plan", "sheet": "Change plan",
+      "context": ["PhoneNr","ICCID","simInventoryID","Plan Name","New Plan"],
+      "fill":    ["EffectiveDate"] }
   ]
 }
 ```
 
-**Out** — a JSON string, as with the import script (dynamic keys can't be schema'd):
+Every sheet also carries a protected identity block ahead of the context columns: `RequestID`,
+`Request Type`, `GDID`, `Requested for`, `Provider`, `Ticket_ID`.
 
-```json
-{ "rowsWritten": 16, "breakdown": [{"sheet":"New SIM","rows":12}], "unmapped": 0, "needsAttention": 0 }
-```
+`Delegate` is absent deliberately — internal only, never goes to a provider.
+
+Full mapping and the reasoning in `04_Order_List_Schema.md`.
 
 **What it does:**
 
@@ -240,8 +277,14 @@ A new Office Script. Contract:
 `_Meta` costs nothing now and is what lets the return-leg import tell a current file from a stale
 one. Retrofitting it means asking providers to adopt a new format.
 
-> **Blocked on:** the Order List column schema, and the exact choice values of the request-type
-> column. `typeMap` above is a placeholder shaped from your confirmation of the fill-in columns.
+> **Still needed before this can be built:** the **internal names** for the spaced columns
+> (`Request Type`, `Plan Name`, `Requested for`, `VR Compatible`, `Delivery Address`, `New Plan`),
+> the exact `Request Type` choice values, and the `OrderStatus` value that means approved.
+> `04_Order_List_Schema.md` has the query and explains why guessing the internal names silently
+> exports empty columns.
+>
+> **And a decision:** four of the five provider-facing types need a date back that isn't a start
+> date, and the list has no column for it. See §3 of `04_Order_List_Schema.md`.
 
 ### 5d. Build the URLs
 
@@ -265,9 +308,9 @@ Set `varFileUrl` and `varDownloadUrl` from these.
 
 ---
 
-## 6. LOG 2 — Update item
+## 6. LOG 2 — `Update log item`
 
-Last action **inside** `Scope - Main`. Full field list in `02_Export_Log.md`. Repopulate every
+SharePoint **Update item**, named exactly `Update log item`. Last action **inside** `Scope - Main`. Full field list in `02_Export_Log.md`. Repopulate every
 field — `Update item` writes the whole item and blanks anything left empty.
 
 `Status` = `varStatus` (`Completed` or `No data`).
@@ -344,7 +387,7 @@ way runs are actually going.
 
 ## Still needed
 
-1. **Global Order List schema** — `_api/web/lists(guid'e390b86b-13bb-4655-b3e6-efd5bd068279')/fields?$select=Title,InternalName,TypeAsString,Required&$filter=Hidden eq false and ReadOnlyField eq false`
-2. **The request-type column's name and exact choice values** — they become the tab names
-3. **Which column holds the country** on the Order List — same as `SIM_Country`, or different
-4. Confirmation of the fill-in columns per type, beyond the four already agreed
+1. **Internal names** for the columns whose display names contain spaces — see the query in `04_Order_List_Schema.md`
+2. **The exact `Request Type` choice values** — they become the tab names
+3. **The `OrderStatus` value meaning approved** — `Approved`, or something longer
+4. **A decision on the missing date column** — §3 of `04_Order_List_Schema.md`
