@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIM Exports — Power Automate flow structure</title>
+<style>
+  :root{
+    --bg:#f3f2f1; --panel:#ffffff; --ink:#201f1e; --muted:#605e5c; --line:#c8c6c4;
+    --edge:#8a8886; --chip:#edebe9;
+    --ctrl:#486991; --var:#770bd6; --data:#0078d4; --sp:#036c70; --xl:#217346;
+    --pa:#742774; --mail:#0072c6; --warn:#a4262c; --ok:#107c10;
+    --new:#0f6cbd; --fix:#a4262c;
+    --radius:6px;
+    --font:"Segoe UI",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14px;line-height:1.45}
+
+  header{background:var(--panel);border-bottom:1px solid var(--line);padding:14px 22px;position:sticky;top:0;z-index:50}
+  h1{margin:0 0 3px;font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:12.5px}
+  .bar{display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-top:11px}
+  .tabs{display:flex;gap:2px;background:var(--chip);padding:2px;border-radius:5px}
+  .tab{padding:5px 13px;border:0;background:transparent;font:inherit;font-size:12.5px;border-radius:4px;cursor:pointer;color:var(--muted)}
+  .tab[aria-selected="true"]{background:var(--panel);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+  .ctl{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)}
+  .ctl input[type=range]{width:112px;accent-color:var(--data)}
+  button.mini{padding:5px 11px;border:1px solid var(--line);background:var(--panel);border-radius:4px;font:inherit;font-size:12.5px;cursor:pointer;color:var(--ink)}
+  button.mini:hover{background:var(--chip)}
+  .legend{display:flex;flex-wrap:wrap;gap:5px 14px;margin-top:11px;font-size:11.5px;color:var(--muted)}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  .stats{font-size:11.5px;color:var(--muted);margin-top:7px}
+  .stats b{color:var(--ink);font-weight:600}
+
+  main{padding:26px 22px 90px}
+  .viewport{overflow:auto;padding-bottom:20px}
+  #stage{position:relative;margin:0 auto}
+  #canvas{transform-origin:top left;position:absolute;top:0;left:0}
+
+  /* ---------- sequence + connectors ---------- */
+  .seq{display:flex;flex-direction:column;align-items:center}
+  .link{width:2px;height:22px;background:var(--edge);position:relative;flex:none}
+  .link::after{content:"";position:absolute;bottom:-1px;left:50%;transform:translateX(-50%);
+    border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid var(--edge)}
+  .link.stub::after{display:none}
+
+  /* ---------- action card ---------- */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:0 1px 2px rgba(0,0,0,.09);min-width:290px;max-width:330px;display:flex;overflow:hidden}
+  .card.flag-new{border-color:var(--new);box-shadow:0 0 0 1px var(--new),0 1px 2px rgba(0,0,0,.09)}
+  .card.flag-fix{border-color:var(--fix);box-shadow:0 0 0 1px var(--fix),0 1px 2px rgba(0,0,0,.09)}
+  body.nohl .card.flag-new,body.nohl .card.flag-fix{border-color:var(--line);box-shadow:0 1px 2px rgba(0,0,0,.09)}
+  .ico{width:38px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:600}
+  .body{padding:8px 11px;flex:1;min-width:0}
+  .nm{font-weight:600;font-size:12.5px;word-break:break-word}
+  .ty{color:var(--muted);font-size:11px;margin-top:1px}
+  .note{color:var(--muted);font-size:11px;margin-top:5px;border-top:1px dashed var(--line);padding-top:5px}
+  code{font-family:"Cascadia Mono",Consolas,monospace;font-size:10.5px;background:var(--chip);
+    padding:1px 4px;border-radius:3px;word-break:break-all}
+  .badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+  .b{font-size:10px;padding:1px 6px;border-radius:9px;background:var(--chip);color:var(--muted);white-space:nowrap}
+  .b.w{background:#fdf3f4;color:var(--warn);font-weight:600}
+  .b.g{background:#f1faf1;color:var(--ok);font-weight:600}
+  .b.n{background:#eff6fc;color:var(--new);font-weight:600}
+
+  /* ---------- containers ---------- */
+  .box{border:1px solid var(--edge);border-radius:8px;background:rgba(255,255,255,.5);padding:0 0 16px}
+  .box.scope{border-style:solid;background:rgba(72,105,145,.05)}
+  .box.until{border-style:dashed;background:rgba(119,11,214,.045)}
+  .box.catch{background:rgba(164,38,44,.05);border-color:var(--warn)}
+  .boxhd{display:flex;align-items:center;gap:8px;padding:8px 13px;cursor:pointer;user-select:none;
+    border-bottom:1px solid var(--line);background:var(--panel);border-radius:7px 7px 0 0}
+  .boxhd .tw{font-size:10px;color:var(--muted);width:9px}
+  .boxhd .t{font-weight:600;font-size:12.5px}
+  .boxhd .s{color:var(--muted);font-size:11px}
+  .boxbody{padding:16px 20px 0}
+  .box.collapsed .boxbody{display:none}
+  .box.collapsed{padding-bottom:0}
+
+  /* ---------- branches ---------- */
+  .branches{display:flex;gap:26px;align-items:flex-start;padding-top:6px}
+  .branch{display:flex;flex-direction:column;align-items:center;position:relative;
+    border-top:2px solid var(--edge);padding-top:0}
+  .blabel{font-size:11px;font-weight:600;padding:3px 10px;border-radius:0 0 5px 5px;
+    background:var(--chip);color:var(--muted);white-space:nowrap}
+  .blabel.yes{background:#f1faf1;color:var(--ok)}
+  .blabel.no{background:#fdf3f4;color:var(--warn)}
+  .empty{color:var(--muted);font-size:11.5px;font-style:italic;padding:16px 12px;
+    border:1px dashed var(--line);border-radius:var(--radius);background:rgba(255,255,255,.55);margin-top:22px}
+
+  /* ---------- outline tab ---------- */
+  #outline{display:none}
+  #outline pre{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:18px 20px;overflow:auto;font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;line-height:1.6}
+  body.tab-outline #designer{display:none}
+  body.tab-outline #outline{display:block}
+
+  @media print{
+    header{position:static} .bar,.legend{display:none} main{padding:0}
+    .viewport{overflow:visible} #canvas{transform:none!important}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>SIM Exports — Power Automate flow structure</h1>
+  <div class="sub">Every action from <code>03_Export_Flow_Spec.md</code> v2, fully expanded, showing what sits inside which scope, condition, switch and loop.</div>
+
+  <div class="bar">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-tab="designer">Designer view</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="outline">Text outline</button>
+    </div>
+    <div class="ctl"><label for="zoom">Zoom</label><input id="zoom" type="range" min="35" max="115" value="100"><span id="zval">100%</span></div>
+    <button class="mini" id="collapseAll">Collapse containers</button>
+    <button class="mini" id="expandAll">Expand all</button>
+    <label class="ctl"><input type="checkbox" id="hl" checked> Highlight v2 changes</label>
+    <button class="mini" id="copyOutline" style="display:none">Copy outline</button>
+  </div>
+
+  <div class="legend">
+    <span><i style="background:var(--pa)"></i>PowerApps / Respond</span>
+    <span><i style="background:var(--ctrl)"></i>Control</span>
+    <span><i style="background:var(--var)"></i>Variable</span>
+    <span><i style="background:var(--data)"></i>Data Operation</span>
+    <span><i style="background:var(--sp)"></i>SharePoint</span>
+    <span><i style="background:var(--xl)"></i>Excel Online</span>
+    <span><i style="background:var(--mail)"></i>Outlook</span>
+    <span style="margin-left:8px"><i style="background:var(--new)"></i>added in v2</span>
+    <span><i style="background:var(--fix)"></i>fixed in v2 (was broken)</span>
+  </div>
+  <div class="stats" id="stats"></div>
+</header>
+
+<main>
+  <div id="designer" class="viewport"><div id="stage"><div id="canvas"></div></div></div>
+  <div id="outline"><pre id="outlineText"></pre></div>
+</main>
+
+<script>
+/* =====================================================================
+   The flow, as a tree. Mirrors 03_Export_Flow_Spec.md v2 section numbers.
+   k: a=action  if=condition  sw=switch  scope=scope  until=do-until
+   flag: 'new' = added in v2, 'fix' = existed in v1 but was broken
+   ===================================================================== */
+
+const A = (name, type, conn, o={}) => ({k:'a', name, type, conn, ...o});
+
+const FLOW = [
+  A('PowerApps (V2)','Trigger · Country, ExportType, ActionedBy, ReExport','pa',
+    {note:'ReExport is optional — §2 coalesces null to false', badges:[{t:'§1'}]}),
+
+  A('Initialize variable × 31','Variable',   'var',
+    {note:'Root level only — Power Automate rejects Initialize inside a Scope or loop',
+     badges:[{t:'§2'},{t:'varThreshold is Integer',c:'w'}],flag:'fix'}),
+
+  A('Set varExportType','Variable','var',
+    {note:'Canonicalises and validates in one expression — unrecognised value becomes empty',
+     badges:[{t:'§3'}],flag:'new'}),
+  A('Set varChunkSize','Variable','var',{badges:[{t:'§4'}],flag:'new'}),
+  A('Compose Flow Identity','Data Operation','data',{badges:[{t:'§5'}]}),
+  A('Compose file name','Data Operation','data',{badges:[{t:'§6'}]}),
+  A('Set varFileName','Variable','var',{badges:[{t:'§7'}]}),
+
+  A('Create log item','SharePoint · Create item','sp',
+    {note:'LOG 1 — Status: Running',badges:[{t:'§8'},{t:'retry Exp/4'}]}),
+  A('Set varLogItemId','Variable','var',
+    {note:'run after: has succeeded only — stays 0 if logging failed',badges:[{t:'§9'}]}),
+
+  {k:'scope', name:'Scope - Main', sec:'§10–§14',
+   run:'run after Set varLogItemId: succeeded, failed, skipped',
+   children:[
+
+     {k:'if', name:'Validate inputs', sec:'§10.1',
+      expr:"or(empty(varCountry), empty(varActionedBy), empty(varExportType))",
+      flag:'fix',
+      yes:[
+        A('Set varStatus invalid','Variable','var',{note:'Invalid'}),
+        A('Set varMessage invalid','Variable','var',{note:'Names exactly what was missing'}),
+        {k:'if', name:'Has log item', expr:'greater(varLogItemId, 0)', flag:'new',
+         yes:[A('Update log item invalid','SharePoint · Update item','sp',
+                {note:'Without this the log sits on Running forever and the Stuck-runs view fills with typos',flag:'new'})],
+         no:[]},
+        A('Respond invalid','Respond to a PowerApp','pa',{note:'Respond BEFORE terminating, or the app waits for its timeout'}),
+        A('Set varResponded invalid','Variable','var',{flag:'new'}),
+        A('Terminate invalid','Control · Terminate','ctrl',
+          {note:'Status Cancelled, not Failed — a user who picked no country is not a flow failure',
+           badges:[{t:'Cancelled',c:'g'}],flag:'fix'})
+      ],
+      no:[]},
+
+     A('Check authorisation','SharePoint · Get items','sp',
+       {note:'Country Admins list. Not an access control — ActionedBy is caller-supplied. Raises the bar, gives an audit trail.',
+        badges:[{t:'§10.2'},{t:'optional'}],flag:'new'}),
+     A('Claim concurrency','SharePoint · Get items','sp',
+       {note:'Log list: any Running Requests export for this country in the last 30 min. Soft claim instead of irreversible trigger concurrency.',
+        badges:[{t:'§12.6'}],flag:'new'}),
+
+     A('Compose inventory filter','Data Operation','data',{badges:[{t:'§10.3'}]}),
+     A('Compose requests filter','Data Operation','data',
+       {note:"Adds RequestType ne 'Delegate' and ExportedOn eq null — v1 counted Delegate rows and disagreed with itself",
+        badges:[{t:'§10.3'}],flag:'fix'}),
+
+     {k:'sw', name:'Switch source', sec:'§10.4', expr:"variables('varExportType')",
+      note:'Top Count add(varThreshold,1) · Pagination OFF · Limit Columns by View',
+      cases:[
+        {label:'Inventory', children:[
+          A('Get inventory probe','SharePoint · Get items','sp'),
+          A('Set varItems inventory','Variable','var')]},
+        {label:'Requests', children:[
+          A('Get requests probe','SharePoint · Get items','sp'),
+          A('Set varItems requests','Variable','var')]}
+      ]},
+
+     A('Compose probe count','Data Operation','data',{note:"length(variables('varItems'))",badges:[{t:'§10.5'}]}),
+
+     {k:'if', name:'Has data', sec:'§10.6', expr:'greater(Compose probe count, 0)',
+      no:[
+        {k:'if', name:'Is requests export', expr:"equals(varExportType,'Requests')", flag:'new',
+         yes:[
+           A('Get requests diagnostic','SharePoint · Get items','sp',{note:'Approved only, no other clauses',flag:'new'}),
+           A('Filter array delegate','Data Operation','data',{flag:'new'}),
+           A('Filter array exported','Data Operation','data',{flag:'new'}),
+           A('Set varMessage requests none','Variable','var',
+             {note:'Distinguishes none approved / all already sent / all Delegate',flag:'new'})],
+         no:[A('Set varMessage inventory none','Variable','var')]},
+        A('Set varStatus no data','Variable','var',{note:'No data is a status, not an error'}),
+        A('Respond no data','Respond to a PowerApp','pa',{note:'No file is created'}),
+        A('Set varResponded no data','Variable','var',{flag:'new'})
+      ],
+      yes:[
+
+        {k:'if', name:'Fits sync', sec:'§11.1', expr:'lessOrEquals(Compose probe count, varThreshold)',
+         yes:[],
+         yesEmpty:'nothing to do — varItems already holds every row from the probe',
+         no:[
+           A('Set varAsync','Variable','var',{note:'true'}),
+           A('Set varMessage queued','Variable','var'),
+           A('Set varStatus queued','Variable','var'),
+           {k:'if', name:'Has log item', expr:'greater(varLogItemId, 0)', flag:'new',
+            yes:[A('Update log item queued','SharePoint · Update item','sp',{flag:'new'})], no:[]},
+           A('Respond queued','Respond to a PowerApp','pa',
+             {note:'THE APP UNBLOCKS HERE — the flow keeps running',badges:[{t:'~4s',c:'g'}]}),
+           A('Set varResponded queued','Variable','var',{flag:'new'}),
+           {k:'sw', name:'Switch source full', expr:"variables('varExportType')",
+            note:'Top Count 5000 · Pagination ON · threshold 100000',
+            cases:[
+              {label:'Inventory',children:[A('Get inventory full','SharePoint · Get items','sp'),A('Set varItems full','Variable','var')]},
+              {label:'Requests', children:[A('Get requests full','SharePoint · Get items','sp'),A('Set varItems full','Variable','var')]}
+            ]}
+         ]},
+
+        A('Compose template path','Data Operation','data',
+          {note:'One Compose collapses what v1 duplicated inside both Switch cases',badges:[{t:'§11.2'}],flag:'new'}),
+        A('Get template','SharePoint · Get file content using path','sp',{badges:[{t:'§11.3'}]}),
+        A('Create export file','SharePoint · Create file','sp',{note:'Folder /SIM Exports/Files'}),
+        A('Set varFileCreated','Variable','var',
+          {note:'The honest signal for the catch scope — v1 guarded on varFileName, set long before any file existed',flag:'fix'}),
+        A('Set varFileUrl','Variable','var',
+          {note:"body('Create_export_file')?['{Link}'] — never build the URL by hand",flag:'fix'}),
+
+        {k:'sw', name:'Switch shape', sec:'§11.4', expr:"variables('varExportType')",
+         cases:[
+           {label:'Inventory',children:[
+             A('Shape inventory','Data Operation · Select','data',{note:'20 writable columns: A–S plus U (IMEI). T and V–AC are check formulas.'}),
+             A('Set varShaped','Variable','var')]},
+           {label:'Requests',children:[
+             A('Shape requests','Data Operation · Select','data',{note:"Allow-list. ?['Value'] on 3 Choice cols, ?['DisplayName'] on TransferdTo."}),
+             A('Set varShaped','Variable','var')]}
+         ]},
+
+        {k:'until', name:'Do until write chunks', sec:'§11.5',
+         expr:'greaterOrEquals(varChunkOffset, length(varShaped))',
+         limits:'Count 5000 · Timeout PT2H',
+         warn:'Defaults are Count 60 / PT1H, and the loop EXITS NORMALLY at the cap — 60k rows would ship a short file that looks perfectly fine',
+         flag:'fix',
+         children:[
+           A('Compose chunk','Data Operation','data',{note:'take(skip(varShaped, varChunkOffset), varChunkSize)'}),
+           A('Compose is final chunk','Data Operation','data',{flag:'new'}),
+           {k:'sw', name:'Switch script', expr:"variables('varExportType')",
+            cases:[
+              {label:'Inventory',children:[
+                A('Run CopyRowsIntoTable','Excel Online · Run script','xl',
+                  {note:'Existing production script, unchanged',badges:[{t:'retry NONE',c:'w'}],flag:'fix'})]},
+              {label:'Requests',children:[
+                A('Run BuildRequestSheets','Excel Online · Run script','xl',
+                  {note:'Chunked. 120s hard timeout is why this is in a loop at all.',badges:[{t:'retry NONE',c:'w'}],flag:'new'}),
+                A('Set varBuildResult','Variable','var',{flag:'new'}),
+                A('Set varSkippedIds','Variable','var',{note:'union() across chunks',flag:'new'})]}
+            ]},
+           A('Increment varChunkOffset','Variable','var',
+             {note:'By the ACTUAL chunk length, not varChunkSize — the last partial chunk would overshoot'})
+         ]},
+
+        {k:'if', name:'Assert all rows written', sec:'§11.6',
+         expr:'greaterOrEquals(varChunkOffset, length(varShaped))', flag:'new',
+         yes:[], yesEmpty:'continue',
+         no:[
+           A('Set varMessage short write','Variable','var',{flag:'new'}),
+           A('Force failure short write','Data Operation · Compose','data',
+             {note:'Input @{div(1,0)}. Power Automate has no throw, and Terminate would skip the catch — so the log would never record it and the partial file would stay in the library looking good.',
+              badges:[{t:'deliberate',c:'w'}],flag:'new'})
+         ]},
+
+        {k:'if', name:'Is inventory export', sec:'§13', expr:"equals(varExportType,'Inventory')", flag:'new',
+         yes:[
+           A('Run ReadUploadGate','Excel Online · Run script','xl',
+             {note:'Reads Config!J2 (named range UploadGate) — the template already computes it and the flow ignored it',
+              badges:[{t:'retry NONE',c:'w'}],flag:'new'}),
+           A('Set varDataErrors','Variable','var',{flag:'new'}),
+           A('Set varNotes data errors','Variable','var',
+             {note:'Every inventory export becomes a free data-quality audit. Report, never block.',flag:'new'})
+         ], no:[]},
+
+        {k:'sw', name:'Switch finalize', sec:'§11.7', expr:"variables('varExportType')",
+         cases:[
+           {label:'Inventory',children:[
+             A('Set varRowsExported inventory','Variable','var'),
+             A('Set varSheetBreakdown inventory','Variable','var')]},
+           {label:'Requests',children:[
+             A('Parse build result','Data Operation · Parse JSON','data',{note:'Leave skippedIds untyped'}),
+             A('Set varRowsExported requests','Variable','var',{note:'cumulativeRows — read back from the tables, not accumulated'}),
+             A('Set varSheetBreakdown requests','Variable','var'),
+             A('Set varNotes requests','Variable','var',
+               {note:'Skipped + unmapped requests reported HERE, not shipped in the provider workbook',flag:'new'})]}
+         ]},
+
+        A('Create sharing link','SharePoint','sp',
+          {note:'Type View, scope Organization. Removes the library-permissions dependency that made download.aspx fail uncatchably.',
+           badges:[{t:'§11.8'}],flag:'new'}),
+        A('Set varShareUrl','Variable','var',{flag:'new'}),
+        A('Compose download url','Data Operation','data',{note:"encodeUriComponent over ?['{Path}']"}),
+        A('Set varDownloadUrl','Variable','var'),
+        A('Set varStatus completed','Variable','var'),
+        A('Set varMessage ready','Variable','var',
+          {note:'v1 never set a message on the success path — the label was empty exactly when the user succeeded',flag:'fix'}),
+
+        {k:'if', name:'Is stampable', sec:'§12',
+         expr:"and(equals(varExportType,'Requests'), greater(varRowsExported,0))", flag:'new',
+         no:[],
+         yes:[
+           A('Set varStampUtc','Variable','var',
+             {note:'Once, here. utcNow() inside the loop would drift across batches.',flag:'new'}),
+           A('Filter array stampable','Data Operation','data',
+             {note:'Excludes skipped rows — they were never sent, so they must stay unstamped',flag:'new'}),
+           A('Select stamp ids','Data Operation','data',{flag:'new'}),
+           {k:'until', name:'Do until stamp batches', sec:'§12.5',
+            expr:'greaterOrEquals(varStampOffset, length(Select stamp ids))',
+            limits:'Count 5000 · Timeout PT1H', flag:'new',
+            children:[
+              A('Compose stamp chunk','Data Operation','data',{note:'100 ids per batch'}),
+              A('Compose batch id','Data Operation','data',{note:'guid()'}),
+              A('Compose changeset id','Data Operation','data',{note:'guid()'}),
+              A('Select changeset parts','Data Operation','data',
+                {note:"One PATCH per id. decodeUriComponent('%0D%0A') is how you get a literal CRLF — the $batch parser rejects a bare LF."}),
+              A('Compose batch body','Data Operation','data',{note:'Boundary must match the header exactly'}),
+              A('Send stamp batch','SharePoint · Send an HTTP request','sp',
+                {note:'POST _api/$batch. 100 rows per call instead of 100 Update item calls.',badges:[{t:'retry NONE',c:'w'}]}),
+              {k:'if', name:'Check batch response', expr:"contains(body,'HTTP/1.1 4') or 'HTTP/1.1 5'",
+               yes:[
+                 A('Set varMessage stamp failed','Variable','var'),
+                 A('Force failure stamp','Data Operation · Compose','data',
+                   {note:'$batch returns 200 even when operations inside it failed. Without this check, stamping silently does nothing and the double handover happens anyway.',
+                    badges:[{t:'deliberate',c:'w'}]})
+               ], no:[]},
+              A('Increment varStampOffset','Variable','var'),
+              A('Increment varStampedCount','Variable','var')
+            ]},
+           A('Set varNotes stamped','Variable','var',{flag:'new'})
+         ]},
+
+        {k:'if', name:'Was async', sec:'§14', expr:"equals(variables('varAsync'), true)",
+         yes:[A('Send export email','Outlook · Send an email','mail',
+                {note:'A LINK, never an attachment — a 60k-row workbook is ~28 MB against the ~25 MB Outlook attachment cap'})],
+         no:[A('Respond ready','Respond to a PowerApp','pa'),
+             A('Set varResponded ready','Variable','var',{flag:'new'})]},
+
+        {k:'if', name:'Has log item', sec:'§14.1', expr:'greater(varLogItemId, 0)', flag:'new',
+         yes:[A('Update log item','SharePoint · Update item','sp',
+                {note:'LOG 2 — last action INSIDE the scope. Repopulate every field: Update item writes the whole item. Delivery comes from varAsync, not from row count.',
+                 flag:'fix'})], no:[]}
+      ]}
+   ]},
+
+  {k:'scope', name:'Scope - Catch', sec:'§16', cls:'catch',
+   run:'run after Scope - Main: has failed, is skipped, has timed out',
+   children:[
+     A('Compose error detail','Data Operation','data',
+       {note:'Filters result() to the failed action and truncates to 2000. v1 stringified EVERY action result — tens of MB on a 60k export. coalesce covers a scope timeout, which produces no failed child.',
+        flag:'fix'}),
+     {k:'if', name:'Has log item', expr:'greater(varLogItemId, 0)', flag:'new',
+      yes:[A('Update log item failed','SharePoint · Update item','sp',{note:'LOG 3 — Status Failed'})], no:[]},
+     {k:'if', name:'Can respond', expr:"equals(variables('varResponded'), false)", flag:'fix',
+      yes:[A('Respond failed','Respond to a PowerApp','pa',{note:'Only if nobody responded yet'})],
+      no:[A('Send failure email','Outlook · Send an email','mail',
+            {note:'The async hole in v1: Respond queued already fired, so a second Respond fails and takes the whole catch scope down. Email is the only channel left.',flag:'new'})]},
+     {k:'if', name:'Was file created', expr:"equals(variables('varFileCreated'), true)", flag:'fix',
+      yes:[A('Delete partial file','SharePoint · Delete file','sp',
+             {note:'run after includes has failed — deleting a stray file is best-effort and must never break the handler',
+              badges:[{t:'continue on fail'}]})], no:[]},
+     A('Terminate failed','Control · Terminate','ctrl',{note:'Status Failed'})
+   ]}
+];
+
+/* ===================== renderer ===================== */
+const ICON={pa:'⚡',ctrl:'⛭',var:'{x}',data:'⋯',sp:'▤',xl:'▦',mail:'✉'};
+const COLOR={pa:'var(--pa)',ctrl:'var(--ctrl)',var:'var(--var)',data:'var(--data)',
+             sp:'var(--sp)',xl:'var(--xl)',mail:'var(--mail)'};
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+let counts={a:0,if:0,sw:0,until:0,scope:0,new:0,fix:0};
+
+function link(stub){return `<div class="link${stub?' stub':''}"></div>`;}
+
+function seq(nodes){
+  if(!nodes||!nodes.length) return '';
+  return '<div class="seq">'+nodes.map((n,i)=>(i?link():'')+render(n)).join('')+'</div>';
+}
+
+function badges(n){
+  const b=[...(n.badges||[])];
+  if(n.sec) b.unshift({t:n.sec});
+  if(!b.length) return '';
+  return '<div class="badges">'+b.map(x=>`<span class="b ${x.c||''}">${esc(x.t)}</span>`).join('')+'</div>';
+}
+
+function card(n){
+  counts.a++; if(n.flag==='new')counts.new++; if(n.flag==='fix')counts.fix++;
+  return `<div class="card ${n.flag?'flag-'+n.flag:''}">
+    <div class="ico" style="background:${COLOR[n.conn]||'#666'}">${ICON[n.conn]||'•'}</div>
+    <div class="body"><div class="nm">${esc(n.name)}</div><div class="ty">${esc(n.type||'')}</div>
+    ${badges(n)}${n.note?`<div class="note">${esc(n.note)}</div>`:''}</div></div>`;
+}
+
+function ctrlCard(n,type,extraNote,extraBadges){
+  if(n.flag==='new')counts.new++; if(n.flag==='fix')counts.fix++;
+  const bs=[...(extraBadges||[]),...(n.badges||[])];
+  if(n.sec) bs.unshift({t:n.sec});
+  return `<div class="card ${n.flag?'flag-'+n.flag:''}">
+    <div class="ico" style="background:var(--ctrl)">⛭</div>
+    <div class="body"><div class="nm">${esc(n.name)}</div><div class="ty">${esc(type)}</div>
+    ${n.expr?`<div class="note"><code>${esc(n.expr)}</code></div>`:''}
+    ${bs.length?'<div class="badges">'+bs.map(x=>`<span class="b ${x.c||''}">${esc(x.t)}</span>`).join('')+'</div>':''}
+    ${extraNote?`<div class="note">${esc(extraNote)}</div>`:''}
+    ${n.note?`<div class="note">${esc(n.note)}</div>`:''}</div></div>`;
+}
+
+function branch(label,cls,nodes,emptyText){
+  const inner = (nodes&&nodes.length) ? link(true)+seq(nodes)
+              : `<div class="empty">${esc(emptyText||'— nothing —')}</div>`;
+  return `<div class="branch"><div class="blabel ${cls}">${esc(label)}</div>${inner}</div>`;
+}
+
+function render(n){
+  if(n.k==='a') return card(n);
+
+  if(n.k==='if'){
+    counts.if++;
+    return ctrlCard(n,'Control · Condition')+
+      `<div class="branches">
+        ${branch('✓ If yes','yes',n.yes,n.yesEmpty)}
+        ${branch('✕ If no','no',n.no,n.noEmpty)}
+      </div>`;
+  }
+
+  if(n.k==='sw'){
+    counts.sw++;
+    return ctrlCard(n,'Control · Switch')+
+      '<div class="branches">'+n.cases.map(c=>branch('Case: '+c.label,'',c.children)).join('')+'</div>';
+  }
+
+  if(n.k==='until'){
+    counts.until++;
+    const bs=[]; if(n.limits) bs.push({t:n.limits,c:'n'});
+    return `<div class="box until" data-box>
+      <div class="boxhd"><span class="tw">▼</span><span class="t">⟳ ${esc(n.name)}</span>
+        <span class="s">Do until · ${esc(n.sec||'')}</span></div>
+      <div class="boxbody"><div class="seq">
+        ${ctrlCard({...n,sec:null,badges:bs},'Loop condition',n.warn)}
+        ${link()}${seq(n.children)}
+      </div></div></div>`;
+  }
+
+  if(n.k==='scope'){
+    counts.scope++;
+    return `<div class="box scope ${n.cls||''}" data-box>
+      <div class="boxhd"><span class="tw">▼</span><span class="t">▣ ${esc(n.name)}</span>
+        <span class="s">Scope · ${esc(n.sec||'')} · ${esc(n.run||'')}</span></div>
+      <div class="boxbody">${seq(n.children)}</div></div>`;
+  }
+  return '';
+}
+
+document.getElementById('canvas').innerHTML = seq(FLOW);
+
+document.getElementById('stats').innerHTML =
+  `<b>${counts.a}</b> actions · <b>${counts.if}</b> conditions · <b>${counts.sw}</b> switches · `+
+  `<b>${counts.until}</b> loops · <b>${counts.scope}</b> scopes · `+
+  `<b>${counts.new}</b> added in v2 · <b>${counts.fix}</b> fixed in v2`;
+
+/* ---- text outline, generated from the same tree ---- */
+function outline(nodes,d=0,out=[]){
+  const pad='  '.repeat(d);
+  nodes.forEach(n=>{
+    if(n.k==='a'){out.push(`${pad}• ${n.name}   [${n.type}]`);return;}
+    if(n.k==='if'){
+      out.push(`${pad}◆ ${n.name}  (Condition) ${n.sec||''}`);
+      out.push(`${pad}  IF YES:`); n.yes&&n.yes.length?outline(n.yes,d+2,out):out.push(`${pad}    (${n.yesEmpty||'nothing'})`);
+      out.push(`${pad}  IF NO:`);  n.no&&n.no.length ?outline(n.no ,d+2,out):out.push(`${pad}    (${n.noEmpty||'nothing'})`);
+      return;
+    }
+    if(n.k==='sw'){
+      out.push(`${pad}⇄ ${n.name}  (Switch) ${n.sec||''}`);
+      n.cases.forEach(c=>{out.push(`${pad}  CASE ${c.label}:`);outline(c.children,d+2,out);});
+      return;
+    }
+    if(n.k==='until'){
+      out.push(`${pad}⟳ ${n.name}  (Do until · ${n.limits||''}) ${n.sec||''}`);
+      outline(n.children,d+1,out); return;
+    }
+    if(n.k==='scope'){
+      out.push(`${pad}▣ ${n.name}  (Scope) ${n.sec||''}`);
+      if(n.run) out.push(`${pad}  ↳ ${n.run}`);
+      outline(n.children,d+1,out); return;
+    }
+  });
+  return out;
+}
+const outText = 'SIM Exports — Power Automate action tree (03_Export_Flow_Spec.md v2)\n'+
+  '='.repeat(72)+'\n\n'+outline(FLOW).join('\n')+'\n';
+document.getElementById('outlineText').textContent = outText;
+
+/* ---- controls ---- */
+const zoom=document.getElementById('zoom'), zval=document.getElementById('zval'),
+      canvas=document.getElementById('canvas'), stage=document.getElementById('stage');
+
+/* offsetWidth/offsetHeight are LAYOUT values — a CSS transform does not change them.
+   So the stage must be resized manually, or zooming out leaves a page of dead space. */
+function applyZoom(){
+  const z = zoom.value/100;
+  canvas.style.transform = `scale(${z})`;
+  stage.style.width  = Math.ceil(canvas.offsetWidth  * z) + 'px';
+  stage.style.height = Math.ceil(canvas.offsetHeight * z) + 'px';
+  zval.textContent = zoom.value + '%';
+}
+zoom.addEventListener('input', applyZoom);
+window.addEventListener('resize', applyZoom);
+
+document.querySelectorAll('.boxhd').forEach(h=>h.addEventListener('click',()=>{
+  const b=h.parentElement;b.classList.toggle('collapsed');
+  h.querySelector('.tw').textContent=b.classList.contains('collapsed')?'▶':'▼';
+  applyZoom();
+}));
+const setAll=c=>{document.querySelectorAll('[data-box]').forEach(b=>{
+  b.classList.toggle('collapsed',c);b.querySelector('.tw').textContent=c?'▶':'▼';});applyZoom();};
+document.getElementById('collapseAll').onclick=()=>setAll(true);
+document.getElementById('expandAll').onclick=()=>setAll(false);
+applyZoom();
+document.getElementById('hl').onchange=e=>document.body.classList.toggle('nohl',!e.target.checked);
+
+const copyBtn=document.getElementById('copyOutline');
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.setAttribute('aria-selected',x===t));
+  const isOutline=t.dataset.tab==='outline';
+  document.body.classList.toggle('tab-outline',isOutline);
+  copyBtn.style.display=isOutline?'':'none';
+});
+copyBtn.onclick=async()=>{
+  try{await navigator.clipboard.writeText(outText);copyBtn.textContent='Copied';}
+  catch(e){copyBtn.textContent='Select and copy manually';}
+  setTimeout(()=>copyBtn.textContent='Copy outline',1600);
+};
+</script>
+</body>
+</html>
