@@ -64,29 +64,59 @@
   .b.g{background:#f1faf1;color:var(--ok);font-weight:600}
   .b.n{background:#eff6fc;color:var(--new);font-weight:600}
 
-  /* ---------- containers ---------- */
-  .box{border:1px solid var(--edge);border-radius:8px;background:rgba(255,255,255,.5);padding:0 0 16px}
-  .box.scope{border-style:solid;background:rgba(72,105,145,.05)}
-  .box.until{border-style:dashed;background:rgba(119,11,214,.045)}
-  .box.catch{background:rgba(164,38,44,.05);border-color:var(--warn)}
-  .boxhd{display:flex;align-items:center;gap:8px;padding:8px 13px;cursor:pointer;user-select:none;
-    border-bottom:1px solid var(--line);background:var(--panel);border-radius:7px 7px 0 0}
-  .boxhd .tw{font-size:10px;color:var(--muted);width:9px}
+  /* ---------- containers ----------
+     Every control that owns children gets a box, so it is always visible where a
+     branch stops and the parent sequence resumes. Colour = kind of container. */
+  .box{border:1.5px solid var(--bc);border-radius:9px;background:var(--bg2);
+       --bc:var(--edge); --bg2:rgba(255,255,255,.45)}
+  .box.scope{--bc:#486991; --bg2:rgba(72,105,145,.055)}
+  .box.cond {--bc:#b56a00; --bg2:rgba(181,106,0,.05)}
+  .box.sw   {--bc:#0e7a6e; --bg2:rgba(14,122,110,.05)}
+  .box.until{--bc:#7719aa; --bg2:rgba(119,25,170,.05); border-style:dashed}
+  .box.catch{--bc:#a4262c; --bg2:rgba(164,38,44,.05)}
+  .box.flag-new>.boxhd{box-shadow:inset 0 0 0 1px var(--new)}
+  .box.flag-fix>.boxhd{box-shadow:inset 0 0 0 1px var(--fix)}
+  body.nohl .box.flag-new>.boxhd,body.nohl .box.flag-fix>.boxhd{box-shadow:none}
+  /* nested boxes of the same colour still separate, via depth shading */
+  .box.d1{box-shadow:inset 0 0 0 100vmax rgba(255,255,255,.30)}
+  .box.d2{box-shadow:inset 0 0 0 100vmax rgba(255,255,255,.52)}
+  .box.d3{box-shadow:inset 0 0 0 100vmax rgba(255,255,255,.68)}
+  .box.d4,.box.d5,.box.d6{box-shadow:inset 0 0 0 100vmax rgba(255,255,255,.78)}
+
+  .boxhd{display:flex;align-items:center;gap:9px;padding:8px 13px;cursor:pointer;user-select:none;
+    border-bottom:1.5px solid var(--bc);border-left:5px solid var(--bc);
+    background:var(--panel);border-radius:8px 8px 0 0}
+  .boxhd .tw{font-size:10px;color:var(--bc);width:9px;flex:none}
+  .boxhd .gl{font-size:13px;color:var(--bc);flex:none}
   .boxhd .t{font-weight:600;font-size:12.5px}
   .boxhd .s{color:var(--muted);font-size:11px}
-  .boxbody{padding:16px 20px 0}
-  .box.collapsed .boxbody{display:none}
-  .box.collapsed{padding-bottom:0}
+  .boxhd .k{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    color:var(--bc);background:var(--panel);border:1px solid var(--bc);
+    padding:0 6px;border-radius:9px;flex:none}
+  .boxbody{padding:15px 20px 0}
+  .box.collapsed .boxbody,.box.collapsed .boxft{display:none}
+
+  /* the explicit "you are now out of it" marker */
+  .boxft{font-size:10.5px;color:var(--bc);text-align:center;padding:5px 10px;margin-top:16px;
+    border-top:1.5px dashed var(--bc);background:rgba(255,255,255,.45);border-radius:0 0 8px 8px;
+    font-weight:600;opacity:.85}
+
+  /* condition / switch expression strip, shown once at the top of the box */
+  .expr{font-family:"Cascadia Mono",Consolas,monospace;font-size:10.5px;color:#3b3a39;
+    background:var(--chip);border:1px solid var(--line);border-radius:5px;
+    padding:6px 11px;max-width:560px;text-align:center;word-break:break-word}
+  .hint{font-size:11px;color:var(--muted);max-width:520px;text-align:center;margin-top:7px}
+  .hint.warn{color:var(--warn)}
 
   /* ---------- branches ---------- */
-  .branches{display:flex;gap:26px;align-items:flex-start;padding-top:6px}
+  .branches{display:flex;gap:26px;align-items:flex-start;padding-top:8px}
   .branch{display:flex;flex-direction:column;align-items:center;position:relative;
-    border-top:2px solid var(--edge);padding-top:0}
+    border-top:2px solid var(--bc,var(--edge));padding-top:0}
   .blabel{font-size:11px;font-weight:600;padding:3px 10px;border-radius:0 0 5px 5px;
     background:var(--chip);color:var(--muted);white-space:nowrap}
   .blabel.yes{background:#f1faf1;color:var(--ok)}
   .blabel.no{background:#fdf3f4;color:var(--warn)}
-  .empty{color:var(--muted);font-size:11.5px;font-style:italic;padding:16px 12px;
+  .empty{color:var(--muted);font-size:11.5px;font-style:italic;padding:14px 12px;
     border:1px dashed var(--line);border-radius:var(--radius);background:rgba(255,255,255,.55);margin-top:22px}
 
   /* ---------- outline tab ---------- */
@@ -121,6 +151,15 @@
   </div>
 
   <div class="legend">
+    <b style="color:var(--ink);font-weight:600">Containers</b>
+    <span><i style="background:#486991"></i>▣ Scope</span>
+    <span><i style="background:#b56a00"></i>◆ Condition</span>
+    <span><i style="background:#0e7a6e"></i>⇄ Switch</span>
+    <span><i style="background:#7719aa"></i>⟳ Do until</span>
+    <span style="color:var(--muted)">— each box is closed by an <em>end of…</em> bar, so where a branch stops is always visible</span>
+  </div>
+  <div class="legend">
+    <b style="color:var(--ink);font-weight:600">Actions</b>
     <span><i style="background:var(--pa)"></i>PowerApps / Respond</span>
     <span><i style="background:var(--ctrl)"></i>Control</span>
     <span><i style="background:var(--var)"></i>Variable</span>
@@ -413,9 +452,9 @@ let counts={a:0,if:0,sw:0,until:0,scope:0,new:0,fix:0};
 
 function link(stub){return `<div class="link${stub?' stub':''}"></div>`;}
 
-function seq(nodes){
+function seq(nodes,d,ctx){
   if(!nodes||!nodes.length) return '';
-  return '<div class="seq">'+nodes.map((n,i)=>(i?link():'')+render(n)).join('')+'</div>';
+  return '<div class="seq">'+nodes.map((n,i)=>(i?link():'')+render(n,d,ctx)).join('')+'</div>';
 }
 
 function badges(n){
@@ -433,66 +472,79 @@ function card(n){
     ${badges(n)}${n.note?`<div class="note">${esc(n.note)}</div>`:''}</div></div>`;
 }
 
-function ctrlCard(n,type,extraNote,extraBadges){
-  if(n.flag==='new')counts.new++; if(n.flag==='fix')counts.fix++;
-  const bs=[...(extraBadges||[]),...(n.badges||[])];
-  if(n.sec) bs.unshift({t:n.sec});
-  return `<div class="card ${n.flag?'flag-'+n.flag:''}">
-    <div class="ico" style="background:var(--ctrl)">⛭</div>
-    <div class="body"><div class="nm">${esc(n.name)}</div><div class="ty">${esc(type)}</div>
-    ${n.expr?`<div class="note"><code>${esc(n.expr)}</code></div>`:''}
-    ${bs.length?'<div class="badges">'+bs.map(x=>`<span class="b ${x.c||''}">${esc(x.t)}</span>`).join('')+'</div>':''}
-    ${extraNote?`<div class="note">${esc(extraNote)}</div>`:''}
-    ${n.note?`<div class="note">${esc(n.note)}</div>`:''}</div></div>`;
-}
-
-function branch(label,cls,nodes,emptyText){
-  const inner = (nodes&&nodes.length) ? link(true)+seq(nodes)
+function branch(label,cls,nodes,emptyText,d,ctx){
+  const inner = (nodes&&nodes.length) ? link(true)+seq(nodes,d,ctx)
               : `<div class="empty">${esc(emptyText||'— nothing —')}</div>`;
   return `<div class="branch"><div class="blabel ${cls}">${esc(label)}</div>${inner}</div>`;
 }
 
-function render(n){
+/* One wrapper for every container, so a Condition reads exactly like a Scope:
+   a titled box you can see the walls of, and a footer that says you are out of it. */
+function box(o){
+  const dd = 'd'+Math.min(o.d||0,6);
+  return `<div class="box ${o.cls} ${dd}" data-box>
+    <div class="boxhd">
+      <span class="tw">▼</span><span class="gl">${o.glyph}</span>
+      <span class="k">${esc(o.kind)}</span>
+      <span class="t">${esc(o.name)}</span>
+      <span class="s">${esc(o.sub||'')}</span>
+    </div>
+    <div class="boxbody"><div class="seq">${o.inner}</div></div>
+    <div class="boxft">${o.glyph} end of ${esc(o.name)} &nbsp;·&nbsp; back to ${esc(o.parent||'parent sequence')}</div>
+  </div>`;
+}
+
+function head(n,extra,warn){
+  const bs=[]; if(n.sec) bs.push({t:n.sec});
+  if(extra) bs.push(extra);
+  return (n.expr?`<div class="expr">${esc(n.expr)}</div>`:'')+
+    (bs.length?'<div class="badges" style="justify-content:center">'+
+      bs.map(x=>`<span class="b ${x.c||''}">${esc(x.t)}</span>`).join('')+'</div>':'')+
+    (n.note?`<div class="hint">${esc(n.note)}</div>`:'')+
+    (warn?`<div class="hint warn">${esc(warn)}</div>`:'');
+}
+
+function render(n,d,ctx){
+  d=d||0; ctx=ctx||'root sequence';
   if(n.k==='a') return card(n);
 
   if(n.k==='if'){
     counts.if++;
-    return ctrlCard(n,'Control · Condition')+
-      `<div class="branches">
-        ${branch('✓ If yes','yes',n.yes,n.yesEmpty)}
-        ${branch('✕ If no','no',n.no,n.noEmpty)}
-      </div>`;
+    if(n.flag==='new')counts.new++; if(n.flag==='fix')counts.fix++;
+    return box({cls:'cond'+(n.flag?' flag-'+n.flag:''), d, glyph:'◆', kind:'Condition',
+      name:n.name, sub:n.sec||'', parent:ctx,
+      inner: head(n)+`<div class="branches">
+        ${branch('✓ If yes','yes',n.yes,n.yesEmpty,d+1,`✓ If yes of ${n.name}`)}
+        ${branch('✕ If no','no',n.no,n.noEmpty,d+1,`✕ If no of ${n.name}`)}
+      </div>`});
   }
 
   if(n.k==='sw'){
     counts.sw++;
-    return ctrlCard(n,'Control · Switch')+
-      '<div class="branches">'+n.cases.map(c=>branch('Case: '+c.label,'',c.children)).join('')+'</div>';
+    return box({cls:'sw', d, glyph:'⇄', kind:'Switch', name:n.name, sub:n.sec||'', parent:ctx,
+      inner: head(n)+'<div class="branches">'+
+        n.cases.map(c=>branch('Case: '+c.label,'',c.children,null,d+1,
+          `case ${c.label} of ${n.name}`)).join('')+'</div>'});
   }
 
   if(n.k==='until'){
     counts.until++;
-    const bs=[]; if(n.limits) bs.push({t:n.limits,c:'n'});
-    return `<div class="box until" data-box>
-      <div class="boxhd"><span class="tw">▼</span><span class="t">⟳ ${esc(n.name)}</span>
-        <span class="s">Do until · ${esc(n.sec||'')}</span></div>
-      <div class="boxbody"><div class="seq">
-        ${ctrlCard({...n,sec:null,badges:bs},'Loop condition',n.warn)}
-        ${link()}${seq(n.children)}
-      </div></div></div>`;
+    if(n.flag==='new')counts.new++; if(n.flag==='fix')counts.fix++;
+    return box({cls:'until', d, glyph:'⟳', kind:'Do until', name:n.name, sub:n.sec||'', parent:ctx,
+      inner: head(n, n.limits?{t:n.limits,c:'n'}:null, n.warn)+link()+seq(n.children,d+1,n.name)});
   }
 
   if(n.k==='scope'){
     counts.scope++;
-    return `<div class="box scope ${n.cls||''}" data-box>
-      <div class="boxhd"><span class="tw">▼</span><span class="t">▣ ${esc(n.name)}</span>
-        <span class="s">Scope · ${esc(n.sec||'')} · ${esc(n.run||'')}</span></div>
-      <div class="boxbody">${seq(n.children)}</div></div>`;
+    return box({cls:'scope '+(n.cls||''), d, glyph:'▣', kind:'Scope', name:n.name,
+      sub:n.run||'', parent:ctx,
+      inner: (n.sec?`<div class="badges" style="justify-content:center"><span class="b">${esc(n.sec)}</span></div>`:'')+
+             seq(n.children,d+1,n.name)});
   }
   return '';
 }
 
-document.getElementById('canvas').innerHTML = seq(FLOW);
+document.getElementById('canvas').innerHTML = seq(FLOW,0,'root sequence');
 
 document.getElementById('stats').innerHTML =
   `<b>${counts.a}</b> actions · <b>${counts.if}</b> conditions · <b>${counts.sw}</b> switches · `+
