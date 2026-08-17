@@ -140,9 +140,15 @@ provider simply isn't the one told about it.
 The PowerApps picker limits an admin to their own countries, but the flow does not trust it — a
 flow callable from the app is callable with any parameters by anyone who can call the app.
 
-**Handled — `03` §10.2.** `ActionedBy` is validated against a Country Admins list for the
-requested country. A mismatch is rejected with a clear message, logged with status `Unauthorised`
-so it is filterable separately from a user who forgot to pick a country, and terminated.
+**Handled — `03` §10.2.** `ActionedBy` is validated against the requested country's Local Admin
+fields on the **SIMRI Country Matrix** — the list the app already maintains, so who administers a
+country has one home rather than two. A mismatch is rejected with a clear message, logged with
+status `Unauthorised` so it is filterable separately from a user who forgot to pick a country, and
+terminated.
+
+One detail that decides whether this works at all: the three admin clauses must be **parenthesised**
+(`11` §Authorisation). Without the brackets, OData precedence lets anyone listed as Local Admin 2
+for any country export every country.
 
 **Be honest about what this is.** There is no trustworthy caller identity on a PowerApps V2
 trigger. This stops casual misuse and gives you an audit trail. It is not an access control.

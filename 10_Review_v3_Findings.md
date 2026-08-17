@@ -307,10 +307,14 @@ volume (8), forced stamping failure (18) and simultaneous exports (19).
 
 ### D4. The `Country Admins` list was referenced but never defined
 
-`03` §10.2 filters it on `Email` and `Country`. No schema, no note on whether it exists.
+`03` §10.2 filtered it on `Email` and `Country`. No schema, no note on whether it exists.
 
-**Fixed:** `08` §1.4 — with the instruction to check first whether the app already stores the Local
-Admin role somewhere, because two sources of truth for who administers a country is its own bug.
+**Fixed, then fixed better.** `08` §1.4 first said to check whether the app already stored the Local
+Admin role somewhere. It does: the **SIMRI Country Matrix**, one row per country, with Local Admin
+1, 2 and an optional group. §10.2 now reads that, `08` §1.4 says to build nothing, and `11` records
+the schema — including that ten of its columns are `field_N` internal names that cannot be inferred
+from their display names, and that `LinkTitle` displays as *CountryCode* but is computed and cannot
+be filtered.
 
 ### D5. `Create sharing link` could fail the whole export
 

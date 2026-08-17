@@ -246,7 +246,7 @@ const FLOW = [
 
      {k:'if', name:'Check authorisation', sec:'§10.2',
       expr:"length(Check authorisation value) == 0",
-      note:'Get items on Country Admins, filtered on varActionedByOData + varCountryOData. Not an access control — ActionedBy is caller-supplied. Raises the bar, gives an audit trail.',
+      note:'Get items on the SIMRI Country Matrix (field_1 = country, field_13/14/15 = local admins, Active eq 1). PARENTHESISE the three admin clauses or any admin passes for every country. Not an access control — ActionedBy is caller-supplied.',
       yes:[
         A('Set varStatus unauthorised','Variable','var',
           {note:'Unauthorised — its own log status, so the security question is a view filter rather than a text search',flag:'new'}),
@@ -260,18 +260,29 @@ const FLOW = [
       ],
       no:[]},
 
-     {k:'if', name:'Claim concurrency', sec:'§10.2b',
-      expr:"Requests only · Status eq 'Running' and Country eq … and ID lt varLogItemId",
-      note:'ID lt varLogItemId is the whole trick: this flow’s OWN log item is already Running by now, so without it every Requests export rejects itself. With it, a run only defers to an export that started before it did.',
-      flag:'fix',
+     {k:'if', name:'Is requests export claim', sec:'§10.2b',
+      expr:"equals(variables('varExportType'),'Requests')",
+      note:'Inventory exports do not claim — two of them produce two identical read-only files, which is harmless. Two Requests exports both read the same unstamped rows and both hand them over.',
+      noEmpty:'nothing — inventory falls through to §10.3',
       yes:[
-        A('Set varStatus claim rejected','Variable','var'),
-        A('Set varMessage claim rejected','Variable','var',{note:'Names the time and the admin already running it'}),
-        {k:'if', name:'Has log item claim', expr:'greater(varLogItemId, 0)',
-         yes:[A('Update log item claim','SharePoint · Update item','sp')], no:[]},
-        A('Respond claim rejected','Respond to a PowerApp','pa'),
-        A('Set varResponded claim','Variable','var'),
-        A('Terminate claim rejected','Control · Terminate','ctrl',{badges:[{t:'Cancelled',c:'g'}]})
+        A('Claim concurrency','SharePoint · Get items','sp',
+          {note:"Log list: Status eq 'Running' and ExportType eq 'Requests' and Country eq … and ID lt varLogItemId and Created gt now-30min. Top 1, Order By ID desc. NO Limit Columns by View — the message reads Created and ActionedBy_email off the result.",
+           badges:[{t:'§10.2b'}]}),
+        {k:'if', name:'Claim rejected', expr:"greater(length(body('Claim_concurrency')?['value']), 0)",
+         flag:'fix',
+         note:'ID lt varLogItemId is the whole trick: this flow’s OWN log item is already Running by now, so without it every Requests export rejects itself. With it, a run only defers to an export that started before it did — one winner, one clear message.',
+         noEmpty:'nothing — no earlier export is running, so this one continues to §10.3',
+         yes:[
+           A('Set varStatus claim rejected','Variable','var',{note:'Invalid'}),
+           A('Set varMessage claim rejected','Variable','var',{note:'Names the time and the admin already running it'}),
+           {k:'if', name:'Has log item claim', expr:'greater(varLogItemId, 0)',
+            yes:[A('Update log item claim','SharePoint · Update item','sp')], no:[]},
+           A('Respond claim rejected','Respond to a PowerApp','pa'),
+           A('Set varResponded claim','Variable','var'),
+           A('Terminate claim rejected','Control · Terminate','ctrl',
+             {note:'THE RUN ENDS HERE. Nothing after it executes, and Scope - Catch does not run after a Terminate — which is why the log update and the Respond both come first.',
+              badges:[{t:'Cancelled',c:'g'}]})
+         ]}
       ],
       no:[]},
 

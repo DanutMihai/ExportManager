@@ -56,23 +56,30 @@ Check the `Status` choice column has all **seven** values: `Running`, `Queued`, 
 `No data`, `Unauthorised`, `Invalid`, `Failed`. SharePoint rejects a value that isn't in the list,
 and the flow writes all seven.
 
-### 1.4 Country Admins list
+### 1.4 SIMRI Country Matrix — nothing to build
 
-`03` §10.2 reads this and it is not defined anywhere else. **Check first whether the app already
-has one** — the Local Admin role has to be stored somewhere today, and a second source of truth
-for who administers a country is a bug waiting to happen. If it exists, point §10.2 at it and skip
-this table.
+`03` §10.2 authorises against this list and **it already exists**: GUID
+`29bf3303-c195-474f-9146-e25d9f0d1b77`, one row per country, holding the provider, plan, delivery
+defaults and the local admins. Full schema in `11_Country_Matrix_Schema.md`.
 
-If it does not:
+Earlier drafts of this checklist described building a separate `Country Admins` list. Do not — a
+second source of truth for who administers a country is a bug waiting to happen, and this one is
+already what the app maintains.
 
-| Column | Type | Notes |
-|---|---|---|
-| `Title` | Single line of text | display name, required by default |
-| `AdminEmail` | Single line of text | **Index this.** Text, not Person — matched against `ActionedBy` |
-| `Country` | Single line of text | **Index this.** Must match `CountryName` on the Order List exactly, including case |
-| `Active` | Yes/No | so leavers are disabled rather than deleted, keeping the audit trail |
+Three things to verify rather than create:
 
-One row per admin per country. If `Active` is used, add `and Active eq 1` to §10.2's filter.
+- **The internal names.** `field_1` is CountryName; `field_13`, `field_14`, `field_15` are Local
+  Admin 1, Local Admin 2 and Local Admin Group. Ten columns on this list are `field_N` and none of
+  them can be inferred from the display name. `LinkTitle` displays as *CountryCode* but is a
+  computed field and **cannot be filtered** — the value is in `Title`.
+- **What `field_15` actually holds** for a country that uses it. It is a text column, so §10.2
+  compares it to the caller's own address. A shared mailbox someone signs in as works; a
+  distribution list or AAD group does not, and a member of it would be told they are not authorised.
+- **That `field_1` matches `CountryName` on the Order List** and `SIM_Country` on the Inventory,
+  exactly. A mismatch produces a clean "not authorised" or a clean "no approved requests" — a
+  correct-looking answer to a question nobody asked.
+
+No index required: one row per country is far below the 5,000 threshold.
 
 ### 1.5 The two "Limit Columns by View" views
 
@@ -119,6 +126,7 @@ value* per environment.
 | `simri_SiteUrl` | Text | `https://deutschebank.sharepoint.com/sites/simri` |
 | `simri_InventoryListId` | Text | `6b659861-abd0-4e45-b74e-63e3f69f2648` |
 | `simri_OrderListId` | Text | `e390b86b-13bb-4655-b3e6-efd5bd068279` |
+| `simri_CountryMatrixId` | Text | `29bf3303-c195-474f-9146-e25d9f0d1b77` |
 | `simri_ExportLibrary` | Text | `/SIM Exports/Files` |
 | `simri_InventoryTemplate` | Text | `/Documents/SIM_Inventory_TEMPLATE.xlsx` |
 | `simri_HandoverTemplate` | Text | `/Documents/SIM_Request_Handover_TEMPLATE.xlsx` |
@@ -202,9 +210,16 @@ repeat with a country of a single space — `empty(' ')` is `false` and this is 
 §2's trim is doing its job.
 
 **4. Unauthorised.** A country the caller does not administer. Expect `status = Unauthorised`, a
-log item at `Unauthorised` recording **both** the email and the country attempted. Then repeat with
-`ActionedBy` set to `x' or Country ne '` — it must be rejected, not authorised. That is §4a's
-escaping.
+log item at `Unauthorised` recording **both** the email and the country attempted.
+
+Then three variants, because this filter has more ways to be wrong than it looks:
+
+- `ActionedBy` set to `x' or field_1 ne '` — must be rejected, not authorised. That is §4a's
+  escaping doing its job.
+- An admin who is Local Admin 2 for country A, exporting country B. **Must be rejected.** If it
+  passes, the parentheses are missing from §10.2's filter and every admin can export every country.
+- The same email in different casing. Should still pass — SharePoint text comparison is
+  case-insensitive — but confirm it, because `User().Email` casing varies by tenant.
 
 ### Inventory path
 

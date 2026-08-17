@@ -15,6 +15,7 @@ presents one of these as still open, this file wins.
 | 03 | `03_Export_Flow_Spec.md` | the flow, action by action, in build order |
 | 02 | `02_Export_Log.md` | the log list schema and the exact field values |
 | 04 | `04_Order_List_Schema.md` | source column names and the handover mapping |
+| 11 | `11_Country_Matrix_Schema.md` | each country's config and its local admins — the authorisation source |
 | 06 | `06_Handover_Template_Spec.md` | what the provider workbook must contain |
 | — | `BuildRequestSheets.ts` | the Office Script the flow calls |
 | 07 | `07_Flow_Diagram.html` | the same flow as a clickable tree, for orientation |
@@ -32,6 +33,7 @@ presents one of these as still open, this file wins.
 | Site | `https://deutschebank.sharepoint.com/sites/simri` |
 | Inventory list | Global SIM Inventory · `6b659861-abd0-4e45-b74e-63e3f69f2648` |
 | Order list | Global Order List · `e390b86b-13bb-4655-b3e6-efd5bd068279` |
+| Country config | SIMRI Country Matrix · `29bf3303-c195-474f-9146-e25d9f0d1b77` |
 | Inventory template | `/Documents/SIM_Inventory_TEMPLATE.xlsx` (rename of `SIM_Data_Validation_DEMO.xlsx`) |
 | Requests template | `/Documents/SIM_Request_Handover_TEMPLATE.xlsx` |
 | Output library | `/SIM Exports/Files` |
@@ -108,22 +110,26 @@ stamped count, duration, and a link to the file. Schema in `02_Export_Log.md`. O
 created `Running` before the work starts, so runs that die without reaching a terminal action
 still leave a record.
 
-**Authorisation is a control, not access control.** The flow checks `ActionedBy` against a
-Country Admins list and rejects mismatches. `ActionedBy` is a caller-supplied parameter and a
-flow callable from the app is callable with any parameters by anyone the app is shared with, so
-this raises the bar against casual misuse and produces an audit trail. It does not close the
-hole. Recorded as a residual risk in `09` §5 rather than described as solved.
+**Authorisation is a control, not access control.** The flow checks `ActionedBy` against the
+country's Local Admin fields on the **SIMRI Country Matrix** — the list the app already maintains,
+so there is one source of truth for who administers a country rather than two. `ActionedBy` is a
+caller-supplied parameter and a flow callable from the app is callable with any parameters by
+anyone the app is shared with, so this raises the bar against casual misuse and produces an audit
+trail. It does not close the hole. Recorded as a residual risk in `09` §5 rather than described as
+solved.
 
 **One country per export.** The trigger takes a single `Country`. Confirmed: an admin exports one
 country at a time. If admins ever become regional and "export all my countries" is asked for, the
 change is a `Country` list plus a loop producing one file and one log row per country — see `03`
 §20 for the note that will be there when someone goes looking.
 
-**One provider per country.** Confirmed. The workbook therefore contains one country's requests
-for one provider, and `Provider` sits in the identity block as a confirmation for the recipient
-rather than as a grouping key. If that ever stops being true, `06` §"If the one-provider-per-country
-assumption breaks" records what changes — and the failure mode if it is missed is provider A
-receiving provider B's customer list, which is a data-sharing incident rather than a bug.
+**One provider per country.** Not just confirmed — **enforced by the schema**: the SIMRI Country
+Matrix holds a single `Provider` value on a single row per country. The workbook therefore contains
+one country's requests for one provider, and `Provider` sits in the identity block as a
+confirmation for the recipient rather than as a grouping key. If that ever stops being true, `06`
+§"If the one-provider-per-country assumption breaks" records what changes — and the failure mode if
+it is missed is provider A receiving provider B's customer list, which is a data-sharing incident
+rather than a bug.
 
 ---
 

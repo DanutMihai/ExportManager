@@ -38,6 +38,7 @@ expressions. Where an expression needs one, it is written as
 | `simri_SiteUrl` | `https://deutschebank.sharepoint.com/sites/simri` |
 | `simri_InventoryListId` | `6b659861-abd0-4e45-b74e-63e3f69f2648` |
 | `simri_OrderListId` | `e390b86b-13bb-4655-b3e6-efd5bd068279` |
+| `simri_CountryMatrixId` | `29bf3303-c195-474f-9146-e25d9f0d1b77` |
 | `simri_ExportLibrary` | `/SIM Exports/Files` |
 | `simri_InventoryTemplate` | `/Documents/SIM_Inventory_TEMPLATE.xlsx` |
 | `simri_HandoverTemplate` | `/Documents/SIM_Request_Handover_TEMPLATE.xlsx` |
@@ -45,8 +46,9 @@ expressions. Where an expression needs one, it is written as
 | `simri_SupportEmail` | where failure digests go |
 
 Companion documents: log schema `02_Export_Log.md` · source columns `04_Order_List_Schema.md` ·
-handover template `06_Handover_Template_Spec.md` · script `BuildRequestSheets.ts` ·
-data protection `09_Compliance_and_Data_Protection.md` · build and test `08_Build_Checklist.md`.
+country config and admins `11_Country_Matrix_Schema.md` · handover template
+`06_Handover_Template_Spec.md` · script `BuildRequestSheets.ts` · data protection
+`09_Compliance_and_Data_Protection.md` · build and test `08_Build_Checklist.md`.
 
 > **Rename the inventory template before you start.** It is currently
 > `SIM_Data_Validation_DEMO.xlsx`. A file with `DEMO` in the name is a production dependency of
@@ -79,6 +81,7 @@ Only the entries that change what you build. Full reasoning in `10_Review_v3_Fin
 | `Append to string variable` instead of self-referencing `Set variable` | matches the import flow and avoids the documented self-reference hazard |
 | §2 gains `varRowsSkipped` | `02` needs it as a filterable column, not buried in `Notes` |
 | Environment variables replace hard-coded site URL, list GUIDs and `<envId>` | v2 hard-coded the site URL in three expressions and left `<envId>` as a literal placeholder |
+| §10.2 authorises against the existing **SIMRI Country Matrix**, not a new `Country Admins` list | it already holds each country's local admins. A second source of truth for who administers a country is a bug waiting to happen — and its internal names are `field_1`, `field_13`–`field_15`, which nobody would have guessed |
 
 ---
 
@@ -262,6 +265,40 @@ outputs('Compose_file_name')
 SharePoint **Create item** on SIM Export Log. Field values in `02_Export_Log.md`. Status
 `Running`. Retry: **Exponential, 4**.
 
+### Why this runs before the authorisation check, not after
+
+It looks backwards — you write a log row for a caller you have not authorised yet, and every
+rejected attempt then costs a second write to update it. Three reasons it is the right way round,
+and the third is the one that would actually break if you reordered:
+
+**1. A rejected attempt is the thing most worth recording.** `09` §4 lists "did anyone try to
+export a country they do not administer" as an audit question, and `02` has a *Rejected attempts*
+view to answer it. Both need a log row for the attempt. Check first and terminate, and an
+unauthorised attempt leaves nothing behind but a run-history entry that expires in 28 days.
+
+**2. The log item is created before *any* work, on purpose.** That is the whole point of the
+three-point pattern (`02` §Logging points): a run that dies without reaching a terminal action —
+platform timeout, admin cancellation, dropped connection — still leaves evidence it happened.
+Moving the creation later shrinks that window and reintroduces the blind spot.
+
+**3. §10.2b's concurrency claim needs this item to already exist.** The claim is
+`ID lt varLogItemId` — "is there a Running Requests export for this country whose log item is
+*older than mine*". Creating the row **is** the claim; the ID is the ticket, and the comparison is
+what makes two simultaneous clicks resolve deterministically into one winner.
+
+Check before creating and you lose the tie-break entirely: both runs would look for "any Running
+export", both would find nothing because neither has registered yet, and both would proceed to hand
+the same requests to the provider. The race window gets *wider*, not narrower — and the failure it
+produces is the double handover this design spends §12 preventing.
+
+The cost of the current order is one extra `Update item` on the invalid, unauthorised and claim
+paths. That is a cheap price for an audit trail and a working claim.
+
+> If you do want to trim the log noise, the only check that could reasonably move above §8 is
+> §10.1's input validation — a call with no country produces a log row with no country in it, which
+> is nearly useless. Even then it is worth keeping: the app should never send a blank country, so a
+> row that says it did is a bug report. Authorisation and the claim must stay where they are.
+
 ## 9. `Set varLogItemId`
 
 ```
@@ -309,6 +346,11 @@ Three things this ordering gets right, and all three were wrong in v1:
 - **`Cancelled`, not `Failed`.** A user typing nothing into a picker is not a flow failure, and the
   run-history failure count is something you will want to trust.
 
+**Every branch that uses this shape is terminal.** Step (f) ends the run, so nothing after it in
+that branch executes and there is no "else" to write. The flow reaches §10.3 only when all three
+checks have passed — each check's rejection branch is a dead end by construction, which is what
+keeps the happy path a single unbranched sequence rather than three levels of nesting.
+
 ### 10.1 `Validate inputs` — Condition
 
 ```
@@ -331,19 +373,42 @@ country of one space is now genuinely empty here.
 
 ### 10.2 `Check authorisation`
 
-`Get items` on the **Country Admins** list (schema in `08` §1.4):
+`Get items` on the **SIMRI Country Matrix** — the list that already defines each country's
+configuration and its local admins. Full schema in `11_Country_Matrix_Schema.md`.
 
 ```
-Filter: AdminEmail eq '@{variables('varActionedByOData')}' and Country eq '@{variables('varCountryOData')}'
+List:   SIMRI Country Matrix · 29bf3303-c195-474f-9146-e25d9f0d1b77
+Filter: field_1 eq '@{variables('varCountryOData')}'
+        and Active eq 1
+        and (field_13 eq '@{variables('varActionedByOData')}'
+          or field_14 eq '@{variables('varActionedByOData')}'
+          or field_15 eq '@{variables('varActionedByOData')}')
 Top Count: 1
 ```
+
+`field_1` is CountryName, `field_13`–`field_15` are Local Admin 1, Local Admin 2 and Local Admin
+Group. **Those internal names are not guessable from the display names** — ten columns on that list
+are `field_N` — so take them from `11` rather than from what the list shows you.
+
+**Wrap the three admin clauses in parentheses.** Without them OData precedence gives you
+`(field_1 and Active and field_13) or field_14 or field_15`, and anyone listed as Local Admin 2 for
+*any* country passes for *every* country. It looks like a formatting nicety and is not one.
+
+`Active eq 1` keeps a decommissioned country out. Drop the clause deliberately if a country is ever
+marked inactive while its backlog is still being worked.
+
+> **`field_15` matches an exact address, not group membership.** It is a text column. If it holds a
+> shared mailbox someone signs in as, the filter works. If it holds a distribution list or an AAD
+> group, a member of that group is rejected — OData cannot evaluate membership, and the fix is a
+> separate `Office 365 Groups — Check group membership` call. `11` §Authorisation has the detail.
+> Confirm what is in that column for a country that uses it before go-live.
 
 **If** `equals(length(body('Check_authorisation')?['value']),0)` → §10.0 shape with
 `varStatus` = `Unauthorised` and
 
 ```
 concat('You are not registered as a local admin for ', variables('varCountry'),
-       '. If this is wrong, ask a Super Admin to add you to the Country Admins list.')
+       '. If this is wrong, ask a Super Admin to add you to that country''s row in the SIMRI Country Matrix.')
 ```
 
 `Unauthorised` is its own log status rather than `Invalid`, so a security question can be answered
@@ -357,9 +422,35 @@ implying it is closed.
 
 ### 10.2b `Claim concurrency` — Requests only
 
-Wrap in a Condition on `equals(variables('varExportType'),'Requests')`.
+Two nested Conditions with a `Get items` between them. Written out in full, because the nesting is
+where this gets built wrong:
 
-`Get items` on SIM Export Log:
+```
+◆ Is requests export claim          Condition · equals(variables('varExportType'),'Requests')
+│
+├─ IF YES
+│   │
+│   ├─ ▤ Claim concurrency          SharePoint · Get items on SIM Export Log
+│   │
+│   └─ ◆ Claim rejected             Condition · greater(length(body('Claim_concurrency')?['value']), 0)
+│       │
+│       ├─ IF YES  ── the §10.0 rejection shape, six actions, ending in Terminate
+│       │   ├─ {x} Set varStatus claim rejected      'Invalid'
+│       │   ├─ {x} Set varMessage claim rejected     expression below
+│       │   ├─ ◆ Has log item claim                  greater(variables('varLogItemId'), 0)
+│       │   │   └─ IF YES ▤ Update log item claim    02 Log 1½ field list
+│       │   ├─ ⚡ Respond claim rejected              §15 outputs
+│       │   ├─ {x} Set varResponded claim            true
+│       │   └─ ⛭ Terminate claim rejected            status Cancelled   ←── THE RUN ENDS HERE
+│       │
+│       └─ IF NO   ── nothing. An export is not in progress, so this one continues.
+│
+└─ IF NO           ── nothing. Inventory exports do not claim; two of them are harmless.
+
+§10.3 ── continues here, at Scope - Main level, outside both Conditions
+```
+
+**`Claim concurrency` — Get items on SIM Export Log:**
 
 ```
 Filter: Status eq 'Running' and ExportType eq 'Requests'
@@ -370,7 +461,10 @@ Top Count: 1
 Order By: ID desc
 ```
 
-**If anything comes back** → §10.0 shape with `varStatus` = `Invalid` and
+Do **not** put `Limit Columns by View` on this one — the message below reads `Created` and
+`ActionedBy_email` off the returned item, and column limiting would blank them.
+
+**`Set varMessage claim rejected`:**
 
 ```
 concat('An export for ', variables('varCountry'), ' is already running — started at ',
@@ -378,6 +472,27 @@ concat('An export for ', variables('varCountry'), ' is already running — start
        ' UTC by ', first(body('Claim_concurrency')?['value'])?['ActionedBy_email'],
        '. Wait for it to finish, then try again.')
 ```
+
+Top Count 1 with `Order By ID desc` returns the **most recent** run that started before this one,
+which is the one worth naming in the message. `first(…)` is safe because the branch only runs when
+the array is non-empty.
+
+Three things about the shape above that are easy to get wrong:
+
+- **The YES branch is terminal.** `Terminate` ends the run immediately, so nothing after it in that
+  branch executes, `Scope - Catch` does **not** run, and §14.1 never fires — which is exactly why
+  the log update sits *before* the Respond and the Respond sits *before* the Terminate. Get that
+  order wrong and the log stays `Running` forever while PowerApps waits for a response that never
+  comes.
+- **Both NO branches are genuinely empty.** No else-actions, no compose, nothing. The flow simply
+  falls through to §10.3.
+- **§10.3 is a sibling of `Is requests export claim`, not a child of it.** In the designer it sits
+  at `Scope - Main` level, after the outer Condition closes.
+
+> Verify the `Created gt` literal on the first run. The SharePoint connector accepts a quoted ISO
+> string (`Created gt '2026-08-17T16:00:00Z'`), which is what `addMinutes(utcNow(),-30)` produces —
+> but a filter that silently matches nothing looks identical to "no export is running", and that is
+> the failure this whole section exists to prevent. Test 19 in `08` §6 is the check.
 
 **`ID lt varLogItemId` is the whole trick, and v2 was missing it.** This flow's own log item was
 created at §8 with status `Running`, before this check runs. A filter without the ID clause finds

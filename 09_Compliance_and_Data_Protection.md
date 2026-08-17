@@ -162,7 +162,8 @@ were.
 
 ### R1 — The authorisation check is not access control
 
-`03` §10.2 validates `ActionedBy` against the Country Admins list. But `ActionedBy` is a parameter
+`03` §10.2 validates `ActionedBy` against the requested country's Local Admin fields on the SIMRI
+Country Matrix. But `ActionedBy` is a parameter
 the **caller supplies**, and a flow callable from a PowerApps app is callable directly, with any
 parameters, by anyone the app is shared with. There is no trustworthy caller identity on a
 PowerApps V2 trigger.
