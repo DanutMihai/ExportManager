@@ -136,7 +136,7 @@
 
 <header>
   <h1>SIM Exports — Power Automate flow structure</h1>
-  <div class="sub">Every action from <code>03_Export_Flow_Spec.md</code> v2, fully expanded, showing what sits inside which scope, condition, switch and loop.</div>
+  <div class="sub">Every action from <code>03_Export_Flow_Spec.md</code> <b>v3</b>, fully expanded, showing what sits inside which scope, condition, switch and loop. Findings behind the v3 changes: <code>10_Review_v3_Findings.md</code>.</div>
 
   <div class="bar">
     <div class="tabs" role="tablist">
@@ -146,7 +146,7 @@
     <div class="ctl"><label for="zoom">Zoom</label><input id="zoom" type="range" min="35" max="115" value="100"><span id="zval">100%</span></div>
     <button class="mini" id="collapseAll">Collapse containers</button>
     <button class="mini" id="expandAll">Expand all</button>
-    <label class="ctl"><input type="checkbox" id="hl" checked> Highlight v2 changes</label>
+    <label class="ctl"><input type="checkbox" id="hl" checked> Highlight v3 changes</label>
     <button class="mini" id="copyOutline" style="display:none">Copy outline</button>
   </div>
 
@@ -167,8 +167,8 @@
     <span><i style="background:var(--sp)"></i>SharePoint</span>
     <span><i style="background:var(--xl)"></i>Excel Online</span>
     <span><i style="background:var(--mail)"></i>Outlook</span>
-    <span style="margin-left:8px"><i style="background:var(--new)"></i>added in v2</span>
-    <span><i style="background:var(--fix)"></i>fixed in v2 (was broken)</span>
+    <span style="margin-left:8px"><i style="background:var(--new)"></i>added in v3</span>
+    <span><i style="background:var(--fix)"></i>fixed in v3 (was broken in v2)</span>
   </div>
   <div class="stats" id="stats"></div>
 </header>
@@ -191,22 +191,36 @@ const FLOW = [
   A('PowerApps (V2)','Trigger · Country, ExportType, ActionedBy, ReExport','pa',
     {note:'ReExport is optional — §2 coalesces null to false', badges:[{t:'§1'}]}),
 
-  A('Initialize variable × 31','Variable',   'var',
+  A('Initialize variable × 33','Variable',   'var',
     {note:'Root level only — Power Automate rejects Initialize inside a Scope or loop',
-     badges:[{t:'§2'},{t:'varThreshold is Integer',c:'w'}],flag:'fix'}),
+     badges:[{t:'§2'},{t:'varThreshold is Integer',c:'w'},{t:'+varRowsSkipped',c:'n'}],flag:'new'}),
 
   A('Set varExportType','Variable','var',
     {note:'Canonicalises and validates in one expression — unrecognised value becomes empty',
-     badges:[{t:'§3'}],flag:'new'}),
-  A('Set varChunkSize','Variable','var',{badges:[{t:'§4'}],flag:'new'}),
-  A('Compose Flow Identity','Data Operation','data',{badges:[{t:'§5'}]}),
-  A('Compose file name','Data Operation','data',{badges:[{t:'§6'}]}),
+     badges:[{t:'§3'}]}),
+  A('Set varChunkSize','Variable','var',{badges:[{t:'§4'}]}),
+  A('Set varCountryOData','Variable','var',
+    {note:"replace(varCountry,'''','''''') — doubles apostrophes for OData. Côte d'Ivoire would otherwise terminate the filter string early.",
+     badges:[{t:'§4a'}]}),
+  A('Set varActionedByOData','Variable','var',
+    {note:'Same escaping for the caller-supplied user. Unescaped, the authorisation filter in §10.2 is injectable — a crafted value makes the check always pass.',
+     badges:[{t:'§4a'}],flag:'new'}),
+
+  A('Compose Flow Identity','Data Operation','data',
+    {note:"Environment id from parameters('simri_FlowEnvironmentId') — v2 left <envId> as a literal placeholder",
+     badges:[{t:'§5'}],flag:'fix'}),
+  A('Compose file name','Data Operation','data',{note:'UTC timestamp, matching the log Title',badges:[{t:'§6'}]}),
   A('Set varFileName','Variable','var',{badges:[{t:'§7'}]}),
 
+  A('Compose text headers','Data Operation','data',
+    {note:'Hoisted to root level so the write loop does not rebuild it 120 times',badges:[{t:'§17'}],flag:'new'}),
+  A('Compose type map','Data Operation','data',
+    {note:'Sheet, table, required fields and blankHeaders per RequestType',badges:[{t:'§17'}],flag:'new'}),
+
   A('Create log item','SharePoint · Create item','sp',
-    {note:'LOG 1 — Status: Running',badges:[{t:'§8'},{t:'retry Exp/4'}]}),
+    {note:'LOG 1 — Status: Running. Check the first run for ID vs Id casing.',badges:[{t:'§8'},{t:'retry Exp/4'}]}),
   A('Set varLogItemId','Variable','var',
-    {note:'run after: has succeeded only — stays 0 if logging failed',badges:[{t:'§9'}]}),
+    {note:'run after: has succeeded only — stays 0 if logging failed, and every log write below is guarded on it',badges:[{t:'§9'}]}),
 
   {k:'scope', name:'Scope - Main', sec:'§10–§14',
    run:'run after Set varLogItemId: succeeded, failed, skipped',
@@ -214,36 +228,60 @@ const FLOW = [
 
      {k:'if', name:'Validate inputs', sec:'§10.1',
       expr:"or(empty(varCountry), empty(varActionedBy), empty(varExportType))",
-      flag:'fix',
+      note:'The §10.0 rejection shape: status, message, log, respond, mark responded, terminate — in that order',
       yes:[
         A('Set varStatus invalid','Variable','var',{note:'Invalid'}),
         A('Set varMessage invalid','Variable','var',{note:'Names exactly what was missing'}),
-        {k:'if', name:'Has log item', expr:'greater(varLogItemId, 0)', flag:'new',
+        {k:'if', name:'Has log item invalid', expr:'greater(varLogItemId, 0)',
          yes:[A('Update log item invalid','SharePoint · Update item','sp',
-                {note:'Without this the log sits on Running forever and the Stuck-runs view fills with typos',flag:'new'})],
+                {note:'Without this the log sits on Running forever and the Stuck-runs view fills with typos'})],
          no:[]},
-        A('Respond invalid','Respond to a PowerApp','pa',{note:'Respond BEFORE terminating, or the app waits for its timeout'}),
-        A('Set varResponded invalid','Variable','var',{flag:'new'}),
+        A('Respond invalid','Respond to a PowerApp','pa',{note:'Respond BEFORE terminating, or the app waits for its own timeout'}),
+        A('Set varResponded invalid','Variable','var'),
         A('Terminate invalid','Control · Terminate','ctrl',
           {note:'Status Cancelled, not Failed — a user who picked no country is not a flow failure',
-           badges:[{t:'Cancelled',c:'g'}],flag:'fix'})
+           badges:[{t:'Cancelled',c:'g'}]})
       ],
       no:[]},
 
-     A('Check authorisation','SharePoint · Get items','sp',
-       {note:'Country Admins list. Not an access control — ActionedBy is caller-supplied. Raises the bar, gives an audit trail.',
-        badges:[{t:'§10.2'},{t:'optional'}],flag:'new'}),
-     A('Claim concurrency','SharePoint · Get items','sp',
-       {note:'Log list: any Running Requests export for this country in the last 30 min. Soft claim instead of irreversible trigger concurrency.',
-        badges:[{t:'§12.6'}],flag:'new'}),
+     {k:'if', name:'Check authorisation', sec:'§10.2',
+      expr:"length(Check authorisation value) == 0",
+      note:'Get items on Country Admins, filtered on varActionedByOData + varCountryOData. Not an access control — ActionedBy is caller-supplied. Raises the bar, gives an audit trail.',
+      yes:[
+        A('Set varStatus unauthorised','Variable','var',
+          {note:'Unauthorised — its own log status, so the security question is a view filter rather than a text search',flag:'new'}),
+        A('Set varMessage unauthorised','Variable','var'),
+        {k:'if', name:'Has log item unauthorised', expr:'greater(varLogItemId, 0)',
+         yes:[A('Update log item unauthorised','SharePoint · Update item','sp',
+                {note:'Records BOTH the email and the country attempted'})], no:[]},
+        A('Respond unauthorised','Respond to a PowerApp','pa'),
+        A('Set varResponded unauthorised','Variable','var'),
+        A('Terminate unauthorised','Control · Terminate','ctrl',{badges:[{t:'Cancelled',c:'g'}]})
+      ],
+      no:[]},
+
+     {k:'if', name:'Claim concurrency', sec:'§10.2b',
+      expr:"Requests only · Status eq 'Running' and Country eq … and ID lt varLogItemId",
+      note:'ID lt varLogItemId is the whole trick: this flow’s OWN log item is already Running by now, so without it every Requests export rejects itself. With it, a run only defers to an export that started before it did.',
+      flag:'fix',
+      yes:[
+        A('Set varStatus claim rejected','Variable','var'),
+        A('Set varMessage claim rejected','Variable','var',{note:'Names the time and the admin already running it'}),
+        {k:'if', name:'Has log item claim', expr:'greater(varLogItemId, 0)',
+         yes:[A('Update log item claim','SharePoint · Update item','sp')], no:[]},
+        A('Respond claim rejected','Respond to a PowerApp','pa'),
+        A('Set varResponded claim','Variable','var'),
+        A('Terminate claim rejected','Control · Terminate','ctrl',{badges:[{t:'Cancelled',c:'g'}]})
+      ],
+      no:[]},
 
      A('Compose inventory filter','Data Operation','data',{badges:[{t:'§10.3'}]}),
      A('Compose requests filter','Data Operation','data',
-       {note:"Adds RequestType ne 'Delegate' and ExportedOn eq null — v1 counted Delegate rows and disagreed with itself",
-        badges:[{t:'§10.3'}],flag:'fix'}),
+       {note:"Adds RequestType ne 'Delegate' and ExportedOn eq null. Verify how CAML Neq treats a blank RequestType — it typically excludes nulls.",
+        badges:[{t:'§10.3'}]}),
 
      {k:'sw', name:'Switch source', sec:'§10.4', expr:"variables('varExportType')",
-      note:'Top Count add(varThreshold,1) · Pagination OFF · Limit Columns by View',
+      note:'Top Count add(varThreshold,1) · Pagination OFF · Limit Columns by View — and the view MUST contain ID, or requestId is null and nothing can be stamped',
       cases:[
         {label:'Inventory', children:[
           A('Get inventory probe','SharePoint · Get items','sp'),
@@ -257,17 +295,21 @@ const FLOW = [
 
      {k:'if', name:'Has data', sec:'§10.6', expr:'greater(Compose probe count, 0)',
       no:[
-        {k:'if', name:'Is requests export', expr:"equals(varExportType,'Requests')", flag:'new',
+        {k:'if', name:'Is requests export', expr:"equals(varExportType,'Requests')",
          yes:[
-           A('Get requests diagnostic','SharePoint · Get items','sp',{note:'Approved only, no other clauses',flag:'new'}),
-           A('Filter array delegate','Data Operation','data',{flag:'new'}),
-           A('Filter array exported','Data Operation','data',{flag:'new'}),
+           A('Get requests diagnostic','SharePoint · Get items','sp',{note:'Approved only, no other clauses. Informational and capped at 5000 — it phrases a message, it does not drive a decision.'}),
+           A('Filter array delegate','Data Operation','data'),
+           A('Filter array exported','Data Operation','data'),
            A('Set varMessage requests none','Variable','var',
-             {note:'Distinguishes none approved / all already sent / all Delegate',flag:'new'})],
+             {note:'Distinguishes none approved / all already sent / all Delegate / a mix'})],
          no:[A('Set varMessage inventory none','Variable','var')]},
         A('Set varStatus no data','Variable','var',{note:'No data is a status, not an error'}),
+        {k:'if', name:'Has log item no data', expr:'greater(varLogItemId, 0)',
+         yes:[A('Update log item no data','SharePoint · Update item','sp',{note:'Delivery: None'})], no:[]},
         A('Respond no data','Respond to a PowerApp','pa',{note:'No file is created'}),
-        A('Set varResponded no data','Variable','var',{flag:'new'})
+        A('Set varResponded no data','Variable','var'),
+        A('Terminate no data','Control · Terminate','ctrl',
+          {note:'Succeeded — "no approved requests" is the process working',badges:[{t:'Succeeded',c:'g'}],flag:'new'})
       ],
       yes:[
 
@@ -278,79 +320,88 @@ const FLOW = [
            A('Set varAsync','Variable','var',{note:'true'}),
            A('Set varMessage queued','Variable','var'),
            A('Set varStatus queued','Variable','var'),
-           {k:'if', name:'Has log item', expr:'greater(varLogItemId, 0)', flag:'new',
-            yes:[A('Update log item queued','SharePoint · Update item','sp',{flag:'new'})], no:[]},
+           {k:'if', name:'Has log item queued', expr:'greater(varLogItemId, 0)',
+            yes:[A('Update log item queued','SharePoint · Update item','sp',
+                   {note:'Status Queued — which must exist in the log’s choice column, or this write fails'})], no:[]},
            A('Respond queued','Respond to a PowerApp','pa',
              {note:'THE APP UNBLOCKS HERE — the flow keeps running',badges:[{t:'~4s',c:'g'}]}),
-           A('Set varResponded queued','Variable','var',{flag:'new'}),
+           A('Set varResponded queued','Variable','var'),
            {k:'sw', name:'Switch source full', expr:"variables('varExportType')",
-            note:'Top Count 5000 · Pagination ON · threshold 100000',
+            note:'Top Count 5000 · Pagination ON · threshold 100000. Two DIFFERENTLY NAMED Set actions — action names are globally unique, so two Switch cases cannot both hold "Set varItems full".',
             cases:[
-              {label:'Inventory',children:[A('Get inventory full','SharePoint · Get items','sp'),A('Set varItems full','Variable','var')]},
-              {label:'Requests', children:[A('Get requests full','SharePoint · Get items','sp'),A('Set varItems full','Variable','var')]}
+              {label:'Inventory',children:[A('Get inventory full','SharePoint · Get items','sp'),
+                                           A('Set varItems inventory full','Variable','var',{flag:'fix'})]},
+              {label:'Requests', children:[A('Get requests full','SharePoint · Get items','sp'),
+                                           A('Set varItems requests full','Variable','var',{flag:'fix'})]}
             ]}
          ]},
 
         A('Compose template path','Data Operation','data',
-          {note:'One Compose collapses what v1 duplicated inside both Switch cases',badges:[{t:'§11.2'}],flag:'new'}),
+          {note:"From environment variables, not hard-coded paths",badges:[{t:'§11.2'}]}),
         A('Get template','SharePoint · Get file content using path','sp',{badges:[{t:'§11.3'}]}),
-        A('Create export file','SharePoint · Create file','sp',{note:'Folder /SIM Exports/Files'}),
+        A('Create export file','SharePoint · Create file','sp',{note:'Folder from simri_ExportLibrary'}),
         A('Set varFileCreated','Variable','var',
-          {note:'The honest signal for the catch scope — v1 guarded on varFileName, set long before any file existed',flag:'fix'}),
+          {note:'The honest signal for the catch scope — v1 guarded on varFileName, set long before any file existed'}),
         A('Set varFileUrl','Variable','var',
-          {note:"body('Create_export_file')?['{Link}'] — never build the URL by hand",flag:'fix'}),
+          {note:"body('Create_export_file')?['{Link}'] — never build the URL by hand"}),
 
         {k:'sw', name:'Switch shape', sec:'§11.4', expr:"variables('varExportType')",
+         note:'Again two differently named Set actions, for the same reason as Switch source full',
          cases:[
            {label:'Inventory',children:[
              A('Shape inventory','Data Operation · Select','data',{note:'20 writable columns: A–S plus U (IMEI). T and V–AC are check formulas.'}),
-             A('Set varShaped','Variable','var')]},
+             A('Set varShaped inventory','Variable','var',{flag:'fix'})]},
            {label:'Requests',children:[
-             A('Shape requests','Data Operation · Select','data',{note:"Allow-list. ?['Value'] on 3 Choice cols, ?['DisplayName'] on TransferdTo."}),
-             A('Set varShaped','Variable','var')]}
+             A('Shape requests','Data Operation · Select','data',
+               {note:"Allow-list. ?['Value'] on 3 Choice cols, ?['DisplayName'] on TransferdTo, and a country key so the hidden Country column can feed IsPhoneValid."}),
+             A('Set varShaped requests','Variable','var',{flag:'fix'})]}
          ]},
 
         {k:'until', name:'Do until write chunks', sec:'§11.5',
          expr:'greaterOrEquals(varChunkOffset, length(varShaped))',
          limits:'Count 5000 · Timeout PT2H',
          warn:'Defaults are Count 60 / PT1H, and the loop EXITS NORMALLY at the cap — 60k rows would ship a short file that looks perfectly fine',
-         flag:'fix',
          children:[
            A('Compose chunk','Data Operation','data',{note:'take(skip(varShaped, varChunkOffset), varChunkSize)'}),
-           A('Compose is final chunk','Data Operation','data',{flag:'new'}),
+           A('Compose is final chunk','Data Operation','data',
+             {note:"greaterOrEquals(…), emitting the literal text 'true' or 'false'. v2's table showed lessOrEquals, which is true on EVERY chunk — chunk 1 would protect the sheets and delete the empty tabs before the rest of the data was written.",
+              badges:[{t:'was broken',c:'w'}],flag:'fix'}),
            {k:'sw', name:'Switch script', expr:"variables('varExportType')",
             cases:[
               {label:'Inventory',children:[
                 A('Run CopyRowsIntoTable','Excel Online · Run script','xl',
-                  {note:'Existing production script, unchanged',badges:[{t:'retry NONE',c:'w'}],flag:'fix'})]},
+                  {note:'Existing production script, unchanged',badges:[{t:'retry NONE',c:'w'}]})]},
               {label:'Requests',children:[
+                A('Compose requests payload','Data Operation','data',
+                  {note:'string(json(concat(…))) with numbers and booleans UNQUOTED. "startRowIndex":"0" skips assertTemplate; "finalize":"false" is truthy in JavaScript and finalizes every chunk.',
+                   badges:[{t:'types matter',c:'w'}],flag:'new'}),
                 A('Run BuildRequestSheets','Excel Online · Run script','xl',
-                  {note:'Chunked. 120s hard timeout is why this is in a loop at all.',badges:[{t:'retry NONE',c:'w'}],flag:'new'}),
-                A('Set varBuildResult','Variable','var',{flag:'new'}),
-                A('Set varSkippedIds','Variable','var',{note:'union() across chunks',flag:'new'})]}
+                  {note:'Chunked. 120s hard timeout is why this is in a loop at all.',badges:[{t:'retry NONE',c:'w'}]}),
+                A('Set varBuildResult','Variable','var'),
+                A('Set varSkippedIds','Variable','var',{note:'union() across chunks'})]}
             ]},
            A('Increment varChunkOffset','Variable','var',
              {note:'By the ACTUAL chunk length, not varChunkSize — the last partial chunk would overshoot'})
          ]},
 
         {k:'if', name:'Assert all rows written', sec:'§11.6',
-         expr:'greaterOrEquals(varChunkOffset, length(varShaped))', flag:'new',
+         expr:'greaterOrEquals(varChunkOffset, length(varShaped))',
          yes:[], yesEmpty:'continue',
          no:[
-           A('Set varMessage short write','Variable','var',{flag:'new'}),
+           A('Set varMessage short write','Variable','var'),
            A('Force failure short write','Data Operation · Compose','data',
              {note:'Input @{div(1,0)}. Power Automate has no throw, and Terminate would skip the catch — so the log would never record it and the partial file would stay in the library looking good.',
-              badges:[{t:'deliberate',c:'w'}],flag:'new'})
+              badges:[{t:'deliberate',c:'w'}]})
          ]},
 
-        {k:'if', name:'Is inventory export', sec:'§13', expr:"equals(varExportType,'Inventory')", flag:'new',
+        {k:'if', name:'Is inventory export', sec:'§13', expr:"equals(varExportType,'Inventory')",
          yes:[
            A('Run ReadUploadGate','Excel Online · Run script','xl',
-             {note:'Reads Config!J2 (named range UploadGate) — the template already computes it and the flow ignored it',
-              badges:[{t:'retry NONE',c:'w'}],flag:'new'}),
-           A('Set varDataErrors','Variable','var',{flag:'new'}),
-           A('Set varNotes data errors','Variable','var',
-             {note:'Every inventory export becomes a free data-quality audit. Report, never block.',flag:'new'})
+             {note:'Reads Config!J2 (named range UploadGate). Continues on failure — a data-quality nicety must never fail the export it reports on.',
+              badges:[{t:'retry NONE',c:'w'},{t:'continue on fail',c:'n'}],flag:'fix'}),
+           A('Set varDataErrors','Variable','var'),
+           A('Append varNotes data errors','Variable · Append to string','var',
+             {note:'Append, not a self-referencing Set — matching the import flow. Report, never block.',flag:'fix'})
          ], no:[]},
 
         {k:'sw', name:'Switch finalize', sec:'§11.7', expr:"variables('varExportType')",
@@ -360,34 +411,54 @@ const FLOW = [
              A('Set varSheetBreakdown inventory','Variable','var')]},
            {label:'Requests',children:[
              A('Parse build result','Data Operation · Parse JSON','data',{note:'Leave skippedIds untyped'}),
-             A('Set varRowsExported requests','Variable','var',{note:'cumulativeRows — read back from the tables, not accumulated'}),
+             A('Set varRowsExported requests','Variable','var',{note:'cumulativeRows — counted from the workbook, not accumulated'}),
+             A('Set varRowsSkipped requests','Variable','var',{note:'A filterable log column, not free text buried in Notes',flag:'new'}),
              A('Set varSheetBreakdown requests','Variable','var'),
              A('Set varNotes requests','Variable','var',
-               {note:'Skipped + unmapped requests reported HERE, not shipped in the provider workbook',flag:'new'})]}
+               {note:'Skipped and unmapped requests reported HERE, not shipped in the provider workbook'})]}
+         ]},
+
+        {k:'if', name:'Nothing was written', sec:'§11.7a',
+         expr:"and(equals(varExportType,'Requests'), equals(varRowsExported, 0))",
+         flag:'new',
+         no:[],
+         yes:[
+           A('Set varStatus nothing written','Variable','var',{note:'No data'}),
+           A('Set varMessage nothing written','Variable','var',{note:'Names what was rejected and why'}),
+           A('Delete empty export file','SharePoint · Delete file','sp',
+             {note:'Every request was skipped, so finalize deleted all five sheets. v2 returned a link to a workbook containing only the Instructions tab, with the message "Export ready: 0 rows".',
+              badges:[{t:'silent bug',c:'w'}],flag:'new'}),
+           A('Set varFileCreated false','Variable','var'),
+           A('Set varFileUrl empty','Variable','var'),
+           {k:'if', name:'Has log item nothing written', expr:'greater(varLogItemId, 0)',
+            yes:[A('Update log item nothing written','SharePoint · Update item','sp')], no:[]},
+           A('Respond nothing written','Respond to a PowerApp','pa'),
+           A('Set varResponded nothing written','Variable','var'),
+           A('Terminate nothing written','Control · Terminate','ctrl',{badges:[{t:'Succeeded',c:'g'}]})
          ]},
 
         A('Create sharing link','SharePoint','sp',
-          {note:'Type View, scope Organization. Removes the library-permissions dependency that made download.aspx fail uncatchably.',
-           badges:[{t:'§11.8'}],flag:'new'}),
-        A('Set varShareUrl','Variable','var',{flag:'new'}),
-        A('Compose download url','Data Operation','data',{note:"encodeUriComponent over ?['{Path}']"}),
+          {note:'Type View, scope Organization. Continues on failure — a tenant sharing policy must not destroy an export whose file is already built. NOTE the provider cannot open this link; it is for the admin.',
+           badges:[{t:'§11.8'},{t:'continue on fail',c:'n'}],flag:'fix'}),
+        A('Set varShareUrl','Variable','var',{note:'coalesce to empty so a blocked link is survivable'}),
+        A('Compose download url','Data Operation','data',{note:"encodeUriComponent over ?['{Path}'], site from the environment variable"}),
         A('Set varDownloadUrl','Variable','var'),
         A('Set varStatus completed','Variable','var'),
         A('Set varMessage ready','Variable','var',
-          {note:'v1 never set a message on the success path — the label was empty exactly when the user succeeded',flag:'fix'}),
+          {note:'v1 never set a message on the success path — the label was empty exactly when the user succeeded'}),
 
         {k:'if', name:'Is stampable', sec:'§12',
-         expr:"and(equals(varExportType,'Requests'), greater(varRowsExported,0))", flag:'new',
+         expr:"and(equals(varExportType,'Requests'), greater(varRowsExported,0))",
          no:[],
          yes:[
            A('Set varStampUtc','Variable','var',
-             {note:'Once, here. utcNow() inside the loop would drift across batches.',flag:'new'}),
+             {note:'Once, here. utcNow() inside the loop would drift — and one stamp per run is what lets §16.6 identify exactly which rows to undo.'}),
            A('Filter array stampable','Data Operation','data',
-             {note:'Excludes skipped rows — they were never sent, so they must stay unstamped',flag:'new'}),
-           A('Select stamp ids','Data Operation','data',{flag:'new'}),
+             {note:'Excludes skipped rows — they were never sent, so they must stay unstamped. Both sides of the comparison are strings.'}),
+           A('Select stamp ids','Data Operation','data'),
            {k:'until', name:'Do until stamp batches', sec:'§12.5',
             expr:'greaterOrEquals(varStampOffset, length(Select stamp ids))',
-            limits:'Count 5000 · Timeout PT1H', flag:'new',
+            limits:'Count 5000 · Timeout PT1H',
             children:[
               A('Compose stamp chunk','Data Operation','data',{note:'100 ids per batch'}),
               A('Compose batch id','Data Operation','data',{note:'guid()'}),
@@ -396,7 +467,7 @@ const FLOW = [
                 {note:"One PATCH per id. decodeUriComponent('%0D%0A') is how you get a literal CRLF — the $batch parser rejects a bare LF."}),
               A('Compose batch body','Data Operation','data',{note:'Boundary must match the header exactly'}),
               A('Send stamp batch','SharePoint · Send an HTTP request','sp',
-                {note:'POST _api/$batch. 100 rows per call instead of 100 Update item calls.',badges:[{t:'retry NONE',c:'w'}]}),
+                {note:'POST _api/$batch. 100 rows per call instead of 100 Update item calls. Check DLP permits this connector action before building.',badges:[{t:'retry NONE',c:'w'}]}),
               {k:'if', name:'Check batch response', expr:"contains(body,'HTTP/1.1 4') or 'HTTP/1.1 5'",
                yes:[
                  A('Set varMessage stamp failed','Variable','var'),
@@ -407,38 +478,54 @@ const FLOW = [
               A('Increment varStampOffset','Variable','var'),
               A('Increment varStampedCount','Variable','var')
             ]},
-           A('Set varNotes stamped','Variable','var',{flag:'new'})
+           A('Append varNotes stamped','Variable · Append to string','var',{flag:'fix'})
          ]},
 
         {k:'if', name:'Was async', sec:'§14', expr:"equals(variables('varAsync'), true)",
          yes:[A('Send export email','Outlook · Send an email','mail',
                 {note:'A LINK, never an attachment — a 60k-row workbook is ~28 MB against the ~25 MB Outlook attachment cap'})],
          no:[A('Respond ready','Respond to a PowerApp','pa'),
-             A('Set varResponded ready','Variable','var',{flag:'new'})]},
+             A('Set varResponded ready','Variable','var')]},
 
-        {k:'if', name:'Has log item', sec:'§14.1', expr:'greater(varLogItemId, 0)', flag:'new',
+        {k:'if', name:'Has log item', sec:'§14.1', expr:'greater(varLogItemId, 0)',
          yes:[A('Update log item','SharePoint · Update item','sp',
-                {note:'LOG 2 — last action INSIDE the scope. Repopulate every field: Update item writes the whole item. Delivery comes from varAsync, not from row count.',
-                 flag:'fix'})], no:[]}
+                {note:'LOG 2 — last action INSIDE the scope. Repopulate every field: Update item writes the whole item. Delivery comes from varAsync, not from row count.'})], no:[]}
       ]}
    ]},
 
   {k:'scope', name:'Scope - Catch', sec:'§16', cls:'catch',
    run:'run after Scope - Main: has failed, is skipped, has timed out',
    children:[
+     A('Filter array failed actions','Data Operation · Filter array','data',
+       {note:"From result('Scope_-_Main') where status = Failed. v2 used where(), which is NOT a Power Automate function — the expression cannot be saved, so the error handler could not be built as written.",
+        badges:[{t:'was unbuildable',c:'w'}],flag:'fix'}),
      A('Compose error detail','Data Operation','data',
-       {note:'Filters result() to the failed action and truncates to 2000. v1 stringified EVERY action result — tens of MB on a 60k export. coalesce covers a scope timeout, which produces no failed child.',
+       {note:'Length-guarded truncation: substring(s,0,2000) THROWS when s is shorter than 2000. Explicit length tests rather than coalesce, because an empty string is not null. Falls back to varMessage, then to a timeout note.',
         flag:'fix'}),
-     {k:'if', name:'Has log item', expr:'greater(varLogItemId, 0)', flag:'new',
+     {k:'if', name:'Has log item failed', expr:'greater(varLogItemId, 0)',
       yes:[A('Update log item failed','SharePoint · Update item','sp',{note:'LOG 3 — Status Failed'})], no:[]},
-     {k:'if', name:'Can respond', expr:"equals(variables('varResponded'), false)", flag:'fix',
+     {k:'if', name:'Can respond', expr:"equals(variables('varResponded'), false)",
       yes:[A('Respond failed','Respond to a PowerApp','pa',{note:'Only if nobody responded yet'})],
       no:[A('Send failure email','Outlook · Send an email','mail',
-            {note:'The async hole in v1: Respond queued already fired, so a second Respond fails and takes the whole catch scope down. Email is the only channel left.',flag:'new'})]},
-     {k:'if', name:'Was file created', expr:"equals(variables('varFileCreated'), true)", flag:'fix',
+            {note:'The async hole in v1: Respond queued already fired, so a second Respond fails and takes the whole catch scope down. Email is the only channel left.'})]},
+     {k:'if', name:'Was file created', expr:"equals(variables('varFileCreated'), true)",
       yes:[A('Delete partial file','SharePoint · Delete file','sp',
              {note:'run after includes has failed — deleting a stray file is best-effort and must never break the handler',
               badges:[{t:'continue on fail'}]})], no:[]},
+     {k:'if', name:'Was anything stamped', sec:'§16.6', expr:'greater(varStampedCount, 0)', flag:'new',
+      yes:[
+        A('Get stamped rows','SharePoint · Get items','sp',
+          {note:"ExportRunId eq varRunId — because §12.2 stamps one RunId for the whole run, the rows to undo are exactly identifiable",flag:'new'}),
+        A('Select unstamp ids','Data Operation','data',{flag:'new'}),
+        {k:'until', name:'Do until unstamp batches', expr:'greaterOrEquals(offset, length(Select unstamp ids))',
+         limits:'Count 5000 · Timeout PT1H', flag:'new',
+         children:[
+           A('Send unstamp batch','SharePoint · Send an HTTP request','sp',
+             {note:'PATCH {"ExportedOn":null,"ExportRunId":null}. Without this, a $batch that fails on call 7 of 20 leaves 600 requests marked as handed over to a provider that never received them — and they never appear in another export.',
+              badges:[{t:'the expensive one',c:'w'}],flag:'new'})
+         ]},
+        A('Append varNotes compensated','Variable · Append to string','var',{flag:'new'})
+      ], no:[]},
      A('Terminate failed','Control · Terminate','ctrl',{note:'Status Failed'})
    ]}
 ];
@@ -549,7 +636,7 @@ document.getElementById('canvas').innerHTML = seq(FLOW,0,'root sequence');
 document.getElementById('stats').innerHTML =
   `<b>${counts.a}</b> actions · <b>${counts.if}</b> conditions · <b>${counts.sw}</b> switches · `+
   `<b>${counts.until}</b> loops · <b>${counts.scope}</b> scopes · `+
-  `<b>${counts.new}</b> added in v2 · <b>${counts.fix}</b> fixed in v2`;
+  `<b>${counts.new}</b> added in v3 · <b>${counts.fix}</b> fixed in v3`;
 
 /* ---- text outline, generated from the same tree ---- */
 function outline(nodes,d=0,out=[]){
@@ -579,7 +666,7 @@ function outline(nodes,d=0,out=[]){
   });
   return out;
 }
-const outText = 'SIM Exports — Power Automate action tree (03_Export_Flow_Spec.md v2)\n'+
+const outText = 'SIM Exports — Power Automate action tree (03_Export_Flow_Spec.md v3)\n'+
   '='.repeat(72)+'\n\n'+outline(FLOW).join('\n')+'\n';
 document.getElementById('outlineText').textContent = outText;
 

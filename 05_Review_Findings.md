@@ -1,4 +1,35 @@
-# Export flow — review findings
+# Export flow — review findings (v1)
+
+> ## ⚠️ HISTORICAL — do not build from this document
+>
+> This is the review of **v1** of the spec, dated 15-08-2026. Everything in it has been applied,
+> answered or superseded. It is kept because the *reasoning* is often the clearest record of why a
+> design choice is what it is — but the section numbers it cites (`03` §9.x) are v1 numbers and no
+> longer exist.
+>
+> **Build from `03_Export_Flow_Spec.md` v3 and `08_Build_Checklist.md`.**
+>
+> | Item | Where it landed |
+> |---|---|
+> | A1–A7, B1–B8, C1–C5 | applied in `03` v2 |
+> | D1 stamping | `03` §12, with the compensation in §16.6 added in v3 |
+> | D2 `EffectiveDate` + `ProviderNotes` | `04` §3, now closed |
+> | D3 sharing link | `03` §11.8 |
+> | E1 retention | `09` §2 |
+> | E3 `DurationSeconds`, E9 success message | `02` columns, `03` §11.8 |
+> | E4 failure alerting | `02` §Alerting, `03` §19 |
+> | E6 authorisation | `03` §10.2, residual risk in `09` §5 |
+> | E10 stale cross-references | fixed in `02` |
+> | E11 timezone in the log Title | fixed in `02` |
+> | F1, F2, F3 | answered: 10k is a backlog · one provider per country · the admin forwards |
+> | F5, F6, F9 | still open — `00` §Open items O1, O2, O3, O5 |
+> | F4 external PII transfer | `09`, and `00` open item O4 |
+> | F7 multi-country admins | answered: one country per export. `03` §20 records what changes if that flips |
+> | F8 real timings | `00` open item O6, measured via `02`'s `DurationSeconds` |
+>
+> Six defects that survived into v2 and were only caught in the v3 review are listed in
+> `10_Review_v3_Findings.md`. Three of them originate in this document's own recommendations —
+> notably C4's `where()`, which is not a Power Automate function.
 
 Review of `00`–`04` as of 15-08-2026. Ordered by cost of finding it late.
 

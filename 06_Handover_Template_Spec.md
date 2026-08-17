@@ -98,18 +98,25 @@ Config sheet, since the failure is invisible.
 
 | Sheet | Table | Visible to provider | Notes |
 |---|---|---|---|
-| `Instructions` | — | ✔ first tab | Protected. See §5. |
-| `New SIM` | `tbl_NewSIM` | ✔ | Deleted on finalize if empty |
+| `Instructions` | — | ✔ first tab | Protected. See §5. Never deleted — it is what keeps a workbook with no request sheets openable |
+| `New SIM` | `tbl_NewSIM` | ✔ | **Deleted on finalize if it received no rows** — as are all five |
 | `Terminate` | `tbl_Terminate` | ✔ | |
 | `Swap` | `tbl_Swap` | ✔ | Two ICCID columns — see §2 |
-| `Transfer` | `tbl_Transfer` | ✔ | Pending confirmation it is provider-facing |
+| `Transfer` | `tbl_Transfer` | ✔ | Only if `00` open item O3 confirms it is provider-facing |
 | `Change plan` | `tbl_ChangePlan` | ✔ | |
 | `Config` | `tblCountries` | hidden | Lookup lists, copied from the inventory template |
 | `Checks` | — | hidden | The gate — §6 |
-| `_Meta` | — | **veryHidden** | Written by the script on finalize |
+| `_Meta` | — | **veryHidden** | Written by the script on finalize: RunId, Country, ExportedBy, ExportedUtc, RowsWritten, TotalExpectedRows, SchemaVersion |
+
+All five request sheets ship in the template and the script deletes the ones that received no
+rows. "Received no rows" is measured by counting filled `RequestID` cells, not by the table's row
+count — a resized table carries rows it has not been written to yet.
+
+If **every** sheet would be deleted, the flow never gets that far: `03` §11.7a deletes the whole
+file and tells the admin why. A workbook containing nothing but Instructions is not a deliverable.
 
 **Sheet names must exactly match the `RequestType` choice values** in `typeMap` — confirm them
-with the query in `03` §19 before building. A mismatch no longer corrupts anything: the request
+with the query in `03` §20 before building. A mismatch no longer corrupts anything: the request
 comes back in `skipped` with reason `unmapped:<value>` and is left unstamped, so the next export
 picks it up. But it does mean nobody gets that request until someone reads the log.
 
@@ -117,13 +124,46 @@ picks it up. But it does mean nobody gets that request until someone reads the l
 The other two are admin concerns reported through the flow's response, email and log — putting
 them in the provider's workbook was the v1 mistake.
 
-**Every table ships with zero data rows.** Not one blank row like `Table_query` — `addRows`
-appends, so a blank first row would reach the provider. `assertTemplate()` refuses to run against
-a template with rows in it, which also catches "someone saved the template after testing".
+### Every table ships with exactly ONE data row — the formula prototype row
 
-Because the tables are empty, **number formats, cell locking and data validation must be applied
-to the whole worksheet column**, not just to a table body that doesn't exist yet. That is what
-added rows inherit.
+This changed in v3, and it is not cosmetic. The row holds:
+
+- **the check formulas** in every check column (`ICC_Check`, `Date_Check`, `RowErrors`, …)
+- **nothing at all** in every data column and every provider fill-in column
+
+`BuildRequestSheets` writes the first request *into* that row, so it never reaches the provider as
+a blank row. What it needs the row for is `autoFill`: `table.resize()` does not reliably extend a
+table's calculated columns in Excel Online — some columns propagate and some don't, producing a
+file where row 1 validates correctly and every row below it silently reports OK. The script fills
+each check column down from this row instead, which is exactly what dragging the fill handle does.
+
+A table with zero rows has no formula source, so there would be nothing to fill down.
+
+`assertTemplate()` enforces all of it and refuses to write if any table has a row count other than
+1, or if the prototype row's `RequestID` cell is not empty — which also catches "someone saved the
+template after testing".
+
+**Number formats, cell locking and data validation must be applied to the whole worksheet column**,
+not just to the single-row table body. That is what added rows inherit.
+
+### What the script writes, and what it must never touch
+
+Worth stating on this page too, because it constrains how you build the template:
+
+| Column kind | How the script recognises it | What happens |
+|---|---|---|
+| Data column | header matches a payload key, and is not in that type's `blankHeaders` | written |
+| Check column | no payload key match, **and the prototype row holds a formula** | left alone, then `autoFill`ed down |
+| Provider fill-in | no payload key match, and the prototype row is empty | left alone, reported in `unfilledHeaders` |
+| Deliberately blanked | header is in that type's `blankHeaders` (`03` §17) | left empty, reported in `unfilledHeaders` |
+
+That last row exists for the New SIM sheet: `PhoneNr`, `ICCID` and `StartDate` are the provider's
+to fill there, but the payload carries keys of the same name because the *other* sheets use them
+as protected context. `blankHeaders` forces them empty on New SIM only.
+
+The consequence for you: **a check column must contain its formula in the prototype row, and a
+fill-in column must be genuinely empty in it.** A fill-in column that accidentally holds a leftover
+value will be autoFilled down the whole sheet.
 
 ---
 
@@ -138,17 +178,25 @@ keys by normalised name (lowercase, alphanumerics only), so `Current ICCID` bind
 
 `RequestID` · `RequestType` · `GDID` · `Requested for` · `Provider` · `Ticket_ID`
 
-| Sheet | Context (protected) | Provider fills (unlocked) |
-|---|---|---|
-| New SIM | `SIMType`, `PlanName`, `VRCompatible`, `DeliveryAddress`, `Location` | `PhoneNr`, `ICCID`, `StartDate`, `ProviderNotes` |
-| Terminate | `PhoneNr`, `ICCID`, `simInventoryID`, `PlanName` | `EffectiveDate`, `ProviderNotes` |
-| Swap | `PhoneNr`, `Current ICCID`, `SIMType`, `newSimType`, `simInventoryID`, `DeliveryAddress` | `New ICCID`, `EffectiveDate`, `ProviderNotes` |
-| Transfer | `PhoneNr`, `ICCID`, `simInventoryID`, `TransferdTo`, `PlanName` | `EffectiveDate`, `ProviderNotes` |
-| Change plan | `PhoneNr`, `ICCID`, `simInventoryID`, `PlanName`, `NewPlan` | `EffectiveDate`, `ProviderNotes` |
+| Sheet | Context (protected) | Provider fills (unlocked) | Check columns (protected, formulas) |
+|---|---|---|---|
+| New SIM | `SIMType`, `PlanName`, `VRCompatible`, `DeliveryAddress`, `Location` | `PhoneNr`, `ICCID`, `StartDate`, `ProviderNotes` | `IsPhoneValid`, `PhoneClean`, `ICC_Check`, `Date_Check`, `RowErrors`, `HasError` |
+| Terminate | `PhoneNr`, `ICCID`, `simInventoryID`, `PlanName` | `EffectiveDate`, `ProviderNotes` | `Date_Check`, `RowErrors`, `HasError` |
+| Swap | `PhoneNr`, `Current ICCID`, `SIMType`, `newSimType`, `simInventoryID`, `DeliveryAddress` | `New ICCID`, `EffectiveDate`, `ProviderNotes` | `ICC_Check`, `Date_Check`, `RowErrors`, `HasError` |
+| Transfer | `PhoneNr`, `ICCID`, `simInventoryID`, `TransferdTo`, `PlanName` | `EffectiveDate`, `ProviderNotes` | `Date_Check`, `RowErrors`, `HasError` |
+| Change plan | `PhoneNr`, `ICCID`, `simInventoryID`, `PlanName`, `NewPlan` | `EffectiveDate`, `ProviderNotes` | `Date_Check`, `RowErrors`, `HasError` |
+
+Plus, on **every** sheet, one **hidden `Country` column** at the far right, populated by the script
+from the payload's `country` key. §4 explains why it has to exist. Hide the column; do not put it
+on `_Meta` — `IsPhoneValid` needs it on the same row.
 
 `ProviderNotes` on every sheet is new (`05` §D2). Providers always need to say something —
 "number ported, ICCID differs", "address invalid", "line already terminated 03-07". Without a
 column for it they write it in an email and the return-leg import never sees it.
+
+**`New SIM`'s `PhoneNr`, `ICCID` and `StartDate` are fill-in columns even though every other sheet
+uses those names for protected context.** The script's `blankHeaders` list for that type (`03`
+§17) forces them empty. Unlock them on this sheet and lock them on the others.
 
 **On `simInventoryID` (open question F9).** It is an internal surrogate key the provider cannot
 use, present only to survive the round trip. `04`'s own allow-list principle argues for the
@@ -192,18 +240,27 @@ nobody has to guess. Both `@`. The payload carries `currentIccid` and no `newIcc
 new column comes back in `unfilledHeaders` on every run — expected, and worth knowing so it isn't
 mistaken for drift.
 
-## 3. Cell locking
+## 3. Cell locking and workbook protection
 
 Lock everything by default (Excel's default), then **unlock the fill-in columns for the whole
 column**, not just the table body. New rows inherit the column's locked state, so a column
 unlocked only across the current table range would produce locked cells on every row the script
 adds.
 
-The script's `protectSheets()` applies protection on the final chunk with `allowInsertRows: false`
-and `allowDeleteRows: false` — the provider fills cells, they do not restructure the sheet.
+The script's `protectWorkbook()` applies, on the final chunk only:
 
-No password. `00` already reasoned this out correctly: it prevents accidents rather than
+- **sheet protection** on every request sheet and on `Instructions`, with `allowInsertRows: false`
+  and `allowDeleteRows: false` — the provider fills cells, they do not restructure the sheet
+- **workbook structure protection** — new in v3. Sheet protection alone still lets a provider
+  delete, rename or reorder tabs, and §5's Instructions sheet asks them not to. Asking is not a
+  control; it also stops a curious provider unhiding `Config` or `Checks`
+
+No password on either. `00` already reasoned this out: it prevents accidents rather than
 determined edits, and a locked-out provider is a support call you don't want.
+
+The template itself ships **unprotected** so the script can write to it. A run that fails part-way
+leaves an unprotected file in the library — which is fine, because `03` §16.5 deletes partial
+files, so no unprotected workbook is ever delivered.
 
 ## 4. Validation and check columns
 
@@ -216,11 +273,21 @@ already tested, and already documented in its Readme:
 | `PhoneNr` | `IsPhoneValid` + `PhoneClean` | needs the country on the row — see below |
 | `StartDate` / `EffectiveDate` | `Date_Check` | strict 10-char dd-mm-yyyy, real calendar date |
 
-**`IsPhoneValid` needs a country column.** It compares the number's prefix against
-`tblCountries[DialCode]` matched on `SIM_Country`. The handover sheets have no country column —
-there is one country per file. Two options: add a hidden `Country` column populated by the script
-from `payload.country`, or hard-code the dial code into a `Checks` sheet cell at export time.
-The hidden column is simpler and keeps the formula unchanged.
+**`IsPhoneValid` needs a country column — decided: a hidden `Country` column.** It compares the
+number's prefix against `tblCountries[DialCode]` matched on a country value on the row. The
+handover sheets have no natural country column, because there is one country per file.
+
+Add a hidden `Country` column to every sheet. `03` §11.4's Select map now carries
+`"country": "@{variables('varCountry')}"` on every row, and the script's header matching populates
+the column with no further work. The alternative — hard-coding a dial code into a `Checks` cell at
+export time — would mean rewriting the formula, and this way the inventory template's version is
+reused verbatim.
+
+Two consequences worth writing down:
+
+- The column must be **hidden, not absent**. A formula cannot read a column that isn't there.
+- It is a *data* column as far as the script is concerned (its header matches a payload key), so
+  it must be **empty in the prototype row**, like every other data column.
 
 **Keep the `WARNING:` prefix convention.** The amber conditional-formatting rule tests
 `LEFT(x,8)="WARNING:"`, so any new warning that keeps the prefix colours itself. Cheap

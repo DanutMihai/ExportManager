@@ -1,85 +1,116 @@
-# SIM Exports — build spec (v2)
+# SIM Exports — build spec (v3)
 
-Supersedes v1. Rewritten after the review in `05_Review_Findings.md`, with the confirmed answers:
-**one provider per country**, **thousands of approved requests per country**, **the admin forwards
-the workbook to the provider** (with room for the flow to do it later).
+Supersedes v2. Written in build order: **every action is defined before anything references it.**
+If an expression mentions `outputs('X')` or `body('X')`, action `X` appears earlier in this
+document.
 
-Written in build order. **Every action is defined before anything references it.** If an
-expression mentions `outputs('X')` or `body('X')`, action `X` appears earlier in this document.
+**Before you open the designer**, work through `08_Build_Checklist.md`. It covers the lists,
+columns, indexes, libraries, environment variables, connection identity and DLP checks this
+document assumes already exist. Building the flow first and the prerequisites second is how you
+end up debugging a connector error that is actually a missing index.
 
-**Environment**
-
-| | |
-|---|---|
-| Site | `https://deutschebank.sharepoint.com/sites/simri` |
-| Inventory list | Global SIM Inventory · `6b659861-abd0-4e45-b74e-63e3f69f2648` |
-| Order list | Global Order List · `e390b86b-13bb-4655-b3e6-efd5bd068279` |
-| Inventory template | `/Documents/SIM_Inventory_TEMPLATE.xlsx` — see note below |
-| Requests template | `/Documents/SIM_Request_Handover_TEMPLATE.xlsx` — spec in `06_Handover_Template_Spec.md` |
-| Output library | `/SIM Exports/Files` |
-| Log list | SIM Export Log — schema in `02_Export_Log.md` |
-| Order List schema | `04_Order_List_Schema.md` |
-| Requests script | `BuildRequestSheets.ts` |
-
-> **Rename the inventory template.** It is currently `SIM_Data_Validation_DEMO.xlsx`. A file with
-> `DEMO` in the name is a production dependency of this flow and will eventually be "cleaned up"
-> by someone who reads the filename literally. Rename it, update this table, and keep the demo
-> copy (with its 33 sample rows) somewhere separate.
-
-**Two naming rules.** Power Automate replaces spaces with underscores in expressions, so
-`Get inventory probe` is `body('Get_inventory_probe')`. And no parentheses or punctuation in
-action names.
-
-**What changed from v1** — summary for anyone comparing:
-
-| Change | Why |
-|---|---|
-| `Compose threshold` → `varThreshold` (Integer) | `add`/`greater`/`lessOrEquals` throw on a string |
-| Inputs trimmed and canonicalised up front | `empty(' ')` is `false` |
-| `Update log item invalid` added | the invalid path left the log on `Running` forever |
-| `varResponded` / `varFileCreated` guards | the catch scope could not survive an early failure, or a failure after `Respond queued` |
-| One `Get template` + one `Create export file`, outside the Switch | one `body('Create_export_file')` reference instead of two |
-| File URL from `{Link}` / `{Path}` | string-built URLs break on library rename and encoding |
-| `Create sharing link` | removes the library-permissions dependency |
-| One chunked write loop with a completeness assertion | `Do until` silently exits at 60 iterations |
-| Requests script chunked | 120-second Office Script timeout |
-| Retry `None` on both script actions | a retry after a partial write duplicates rows |
-| `RequestType ne 'Delegate'` and `ExportedOn eq null` in the filter | probe count, rows written and log status disagreed |
-| §12 `$batch` stamping | prevents double handover without 2,000 `Update item` calls |
-| §13 `UploadGate` read | free data-quality report, using machinery the template already has |
+**Confirmed scope:** one provider per country · one country per export · the admin forwards the
+workbook to the provider · Inventory up to 60,000 rows · Requests up to 10,000 per country as a
+one-time backlog.
 
 ---
 
-## 0. Prerequisites
+## Naming rules — three of them, and all three bite
 
-**Order List — two new columns** (see §12 and `04_Order_List_Schema.md`):
+1. **Power Automate replaces spaces with underscores in expressions.** `Get inventory probe`
+   becomes `body('Get_inventory_probe')`.
+2. **No parentheses or punctuation in action names.**
+3. **Action names must be unique across the entire flow — including across the branches of a
+   Switch.** Two Switch cases cannot both contain an action called `Set varShaped`. v2 had this
+   in two places and neither would save. Every action name below is unique; keep it that way.
+
+---
+
+## Environment
+
+Nothing below hard-codes a site URL, list GUID or environment ID. They live in **environment
+variables** (`08` §2) so the solution can be promoted DEV → UAT → PROD without hand-editing
+expressions. Where an expression needs one, it is written as
+`@{parameters('simri_SiteUrl')}` and the table maps it to its value.
+
+| Environment variable | Value in PROD |
+|---|---|
+| `simri_SiteUrl` | `https://deutschebank.sharepoint.com/sites/simri` |
+| `simri_InventoryListId` | `6b659861-abd0-4e45-b74e-63e3f69f2648` |
+| `simri_OrderListId` | `e390b86b-13bb-4655-b3e6-efd5bd068279` |
+| `simri_ExportLibrary` | `/SIM Exports/Files` |
+| `simri_InventoryTemplate` | `/Documents/SIM_Inventory_TEMPLATE.xlsx` |
+| `simri_HandoverTemplate` | `/Documents/SIM_Request_Handover_TEMPLATE.xlsx` |
+| `simri_FlowEnvironmentId` | the Power Platform environment GUID, for the run URL |
+| `simri_SupportEmail` | where failure digests go |
+
+Companion documents: log schema `02_Export_Log.md` · source columns `04_Order_List_Schema.md` ·
+handover template `06_Handover_Template_Spec.md` · script `BuildRequestSheets.ts` ·
+data protection `09_Compliance_and_Data_Protection.md` · build and test `08_Build_Checklist.md`.
+
+> **Rename the inventory template before you start.** It is currently
+> `SIM_Data_Validation_DEMO.xlsx`. A file with `DEMO` in the name is a production dependency of
+> this flow and will eventually be "cleaned up" by someone who reads the filename literally.
+> Rename it, keep the demo copy with its sample rows somewhere separate, and check first whether
+> anything links to the old name — admins may have bookmarked it as the upload template for the
+> import process.
+
+---
+
+## What changed from v2
+
+Only the entries that change what you build. Full reasoning in `10_Review_v3_Findings.md`.
+
+| Change | Why |
+|---|---|
+| Duplicate action names split (`Set varShaped inventory` / `… requests`, `Set varItems inventory full` / `… requests full`) | two actions of the same name in two Switch cases — the flow will not save |
+| §11.5 `Compose is final chunk` emits the literal string `'true'` / `'false'` | v2's table showed `lessOrEquals`, which is true on **every** chunk. Chunk 1 would finalize: sheets protected and empty tabs deleted before the rest of the data was written |
+| Script payload built with `string(json(concat(…)))`, integers and booleans unquoted | `"finalize":"false"` is a non-empty string, and every non-empty string is truthy in JavaScript. `"startRowIndex":"0"` fails `=== 0`, which is the guard that runs `assertTemplate` |
+| §16.1 rebuilt around a `Filter array` action | **`where()` is not a Power Automate function.** v2's error-detail expression cannot be saved |
+| `substring` wrapped in a length guard | `substring(s,0,2000)` **throws** when `s` is shorter than 2000 characters |
+| §10.2b concurrency claim filters `ID lt varLogItemId` | the flow's own log item is already `Running` when it checks, so v2's filter made every Requests export reject itself |
+| `varActionedBy` escaped for OData | v2 escaped `Country` but not `ActionedBy`, leaving the authorisation filter itself injectable |
+| §11.7a — all-requests-skipped path | rows exported = 0 with a file already created: v2 returned a URL to a workbook containing nothing but the Instructions sheet, logged as `No data` |
+| §16.6 — stamping compensation | a `$batch` that fails part-way left rows stamped as sent while the file was deleted. Precisely the failure stamping exists to prevent |
+| §11.8 `Create sharing link` continues on failure | a tenant sharing policy must not fail an export whose file is already built |
+| `Limit Columns by View` must include `ID` | without it `item()?['ID']` is null: blank RequestID in the workbook and nothing to stamp |
+| `country` added to the requests Select map | `06` §4's `IsPhoneValid` needs a per-row country and had no way to get one |
+| `BuildRequestSheets` rewritten to the `CopyRowsIntoTable` pattern | v2 wrote a full-width row per record, overwriting every check formula with `""`. One export and the provider workbook's validation is dead — silently |
+| `Append to string variable` instead of self-referencing `Set variable` | matches the import flow and avoids the documented self-reference hazard |
+| §2 gains `varRowsSkipped` | `02` needs it as a filterable column, not buried in `Notes` |
+| Environment variables replace hard-coded site URL, list GUIDs and `<envId>` | v2 hard-coded the site URL in three expressions and left `<envId>` as a literal placeholder |
+
+---
+
+## 0. Prerequisites — the short version
+
+Full checklist in `08_Build_Checklist.md`. The four that change the flow's shape:
+
+**Order List — four new columns:**
 
 | Internal name | Type | Purpose |
 |---|---|---|
-| `ExportedOn` | Date and Time | Stamped when a request is handed over. Empty = not yet sent. |
-| `ExportRunId` | Single line of text | Which export sent it. Matches `_Meta` in the workbook and `RunId` in the log. |
-| `EffectiveDate` | Single line of text | Provider fills this for every type except New SIM. |
-| `ProviderNotes` | Multiple lines, plain text | Provider free text — "number ported", "address invalid". |
+| `ExportedOn` | Date and Time | Stamped when a request is handed over. Empty = not yet sent. **Read by this flow's filter (§10.3) and written by §12.** |
+| `ExportRunId` | Single line of text | Which export sent it. Matches `_Meta` in the workbook and `RunId` in the log. **Written by §12, and the key §16.6 uses to undo a partial stamp.** |
+| `EffectiveDate` | Single line of text | Return-leg only — the provider fills it for every type except New SIM. Not written by this flow. |
+| `ProviderNotes` | Multiple lines, plain text | Return-leg only — provider free text. Not written by this flow. |
 
 Create them with plain names (no spaces, no underscores) and rename afterwards, then **verify the
 internal names** — SharePoint sometimes encodes an underscore as `_x005f_`:
 
 ```
-_api/web/lists(guid'e390b86b-13bb-4655-b3e6-efd5bd068279')/fields?$select=InternalName,Title&$filter=Hidden eq false
+_api/web/lists(guid'<simri_OrderListId>')/fields?$select=InternalName,Title&$filter=Hidden eq false
 ```
 
 **Indexes.** Global SIM Inventory: `SIM_Country`. Global Order List: `CountryName`, `OrderStatus`,
-and `ExportedOn`. If a single country can exceed 5,000 rows in the Order List, add a **compound
-index** on `CountryName` + `OrderStatus` — the leading filter clause must narrow below 5,000 or
-the query is throttled regardless of what follows it.
+`ExportedOn`. If a single country can exceed 5,000 rows in the Order List, add a **compound index**
+on `CountryName` + `OrderStatus` — the leading filter clause must narrow below 5,000 or the query
+is throttled regardless of what follows it.
 
-**Create `/SIM Exports/Files`** as a document library. With §11's sharing link you no longer need
-to grant read access to every downstream user, but the *flow's connection* obviously needs write.
+**Create `/SIM Exports/Files`** as a document library, and **apply a 90-day retention policy**
+(`09` §2). Every file in it contains employee names, GDIDs and delivery addresses.
 
-**Apply a retention policy** to that library — 90 days is a reasonable default. Every file in it
-contains employee names, GDIDs and delivery addresses.
-
-**Leave trigger concurrency OFF.** Turning it on is irreversible in Power Automate. §12.6 uses a
+**Leave trigger concurrency OFF.** Turning it on is irreversible in Power Automate. §10.2b uses a
 soft claim against the log list instead, which is reversible and visible.
 
 ---
@@ -97,7 +128,7 @@ soft claim against the log list instead, which is reversible and visible.
 already stamped, for the genuine case where a provider lost the file.
 
 Confirm the `text_N` suffixes from the first run. They follow input order, and getting them
-crossed is the most likely early mistake.
+crossed is the most likely early mistake — `08` §6 makes this test 1.
 
 ---
 
@@ -113,14 +144,17 @@ Root level only — Power Automate rejects `Initialize variable` inside a Scope 
 | `varChunkSize` | Integer | `500` |
 | `varBatchSize` | Integer | `100` |
 | `varCountry` | String | `trim(coalesce(triggerBody()?['text'],''))` |
+| `varCountryOData` | String | *(empty — set in §4a)* |
 | `varExportType` | String | *(empty — set in §3)* |
 | `varActionedBy` | String | `trim(coalesce(triggerBody()?['text_2'],''))` |
+| `varActionedByOData` | String | *(empty — set in §4a)* |
 | `varReExport` | Boolean | `coalesce(triggerBody()?['boolean'], false)` |
 | `varFileName` | String | *(empty)* |
 | `varFileUrl` | String | *(empty)* |
 | `varDownloadUrl` | String | *(empty)* |
 | `varShareUrl` | String | *(empty)* |
 | `varRowsExported` | Integer | `0` |
+| `varRowsSkipped` | Integer | `0` |
 | `varSheetBreakdown` | String | *(empty)* |
 | `varMessage` | String | *(empty)* |
 | `varNotes` | String | *(empty)* |
@@ -139,14 +173,17 @@ Root level only — Power Automate rejects `Initialize variable` inside a Scope 
 | `varStampedCount` | Integer | `0` |
 | `varDataErrors` | Integer | `0` |
 
-Three of these carry the weight of the review's findings and are worth understanding:
+Thirty-three variables. Five carry the weight of a defect that cost real debugging time:
 
 - **`varThreshold` is an Integer, not a Compose.** A Compose containing `2000` holds the *string*
-  `"2000"`, and `add`, `greater` and `lessOrEquals` all throw on a string operand. This was the
-  first thing that would have failed.
-- **`varResponded`** — exactly one `Respond to a PowerApp` may execute per run. The catch scope
-  must know whether one already has.
+  `"2000"`, and `add`, `greater` and `lessOrEquals` all throw on a string operand.
+- **`varResponded`** — exactly one `Respond to a PowerApp` may execute per run, and the catch
+  scope must know whether one already has.
 - **`varFileCreated`** — the catch must not try to delete a file that was never created.
+- **`varStampedCount`** — §16.6 needs to know whether there is anything to undo.
+- **`varCountryOData` / `varActionedByOData`** — every caller-supplied value that reaches an OData
+  filter is escaped once, here, rather than escaped inline at four call sites where one will
+  eventually be missed.
 
 ---
 
@@ -158,9 +195,10 @@ if(equals(toLower(trim(coalesce(triggerBody()?['text_1'],''))),'requests'),'Requ
 ''))
 ```
 
-An unrecognised value becomes empty, so §9.1's check is simply `empty(variables('varExportType'))`.
-A recognised value becomes the canonical casing, so the Switch cases and the log's Choice column
-always match — `equals()` and Switch cases are both case-sensitive.
+An unrecognised value becomes empty, so §10.1's check is simply
+`empty(variables('varExportType'))`. A recognised value becomes the canonical casing, so the
+Switch cases and the log's Choice column always match — `equals()` and Switch cases are both
+case-sensitive.
 
 ## 4. `Set varChunkSize`
 
@@ -171,22 +209,45 @@ if(equals(variables('varExportType'),'Inventory'), 500, 500)
 Both are 500 today. Keep the `if` so the two can diverge once you have real timings — the
 inventory script and the requests script have very different per-row costs.
 
+## 4a. `Set varCountryOData` and `Set varActionedByOData`
+
+```
+Set varCountryOData     →  replace(variables('varCountry'),'''','''''')
+Set varActionedByOData  →  replace(variables('varActionedBy'),'''','''''')
+```
+
+Doubling a single quote is how OData escapes it. Without this, `Côte d'Ivoire` terminates the
+filter string early and the query fails — it looks like a typo and isn't.
+
+**It is not only about odd country names.** `ActionedBy` is a value the caller supplies, and it is
+concatenated into the authorisation filter in §10.2. Unescaped, a caller can close the string and
+append their own clause — which turns the authorisation check into a check that always passes.
+Escaping every caller-supplied value before it reaches a filter is the rule; these two variables
+are how the rule is enforced in one place.
+
 ---
 
 ## 5. `Compose Flow Identity`
 
 ```
-concat('https://make.powerautomate.com/environments/<envId>/flows/', workflow()?['name'], '/runs/', workflow()?['run']?['name'])
+concat('https://make.powerautomate.com/environments/', parameters('simri_FlowEnvironmentId'),
+       '/flows/', workflow()?['name'], '/runs/', workflow()?['run']?['name'])
 ```
 
 ## 6. `Compose file name`
 
 ```
-concat(formatDateTime(variables('varStartedUtc'),'yyyy-MM-dd_HH-mm-ss'),'_',replace(variables('varCountry'),' ','-'),'_',variables('varExportType'),'_',substring(variables('varRunId'),0,8),'.xlsx')
+concat(formatDateTime(variables('varStartedUtc'),'yyyy-MM-dd_HH-mm-ss'),'_',
+       replace(variables('varCountry'),' ','-'),'_',
+       variables('varExportType'),'_',
+       substring(variables('varRunId'),0,8),'.xlsx')
 ```
 
-Produces `2026-08-15_14-22-05_Romania_Requests_a7f3c9e1.xlsx`. Now built from the *trimmed*
-country, so a stray space can't produce a filename with a double hyphen.
+Produces `2026-08-15_14-22-05_Romania_Requests_a7f3c9e1.xlsx`. Built from the *trimmed* country,
+so a stray space can't produce a double hyphen. The timestamp is **UTC**, matching the log Title
+(`02`) — so a file and its log row always carry the same clock.
+
+`substring(variables('varRunId'),0,8)` is safe: `guid()` is always 36 characters.
 
 ## 7. `Set varFileName`
 
@@ -199,7 +260,7 @@ outputs('Compose_file_name')
 ## 8. `Create log item` — LOG 1
 
 SharePoint **Create item** on SIM Export Log. Field values in `02_Export_Log.md`. Status
-`Running`. Retry: Exponential, 4.
+`Running`. Retry: **Exponential, 4**.
 
 ## 9. `Set varLogItemId`
 
@@ -208,7 +269,12 @@ body('Create_log_item')?['ID']
 ```
 
 *Configure run after* → **has succeeded** only. If §8 failed, this is skipped and `varLogItemId`
-stays `0`, which §14.1 checks for.
+stays `0`, which every log write below checks for.
+
+> Check the casing on your first run. Some connector versions return `Id` rather than `ID`. `08`
+> §6 makes this an explicit verification step because it fails silently — `?['ID']` on a body that
+> has `Id` returns null, `varLogItemId` becomes 0, and every subsequent log write is skipped by
+> its own guard. The export works perfectly and logs nothing.
 
 ---
 
@@ -216,6 +282,32 @@ stays `0`, which §14.1 checks for.
 
 *Configure run after* `Set varLogItemId` → **has succeeded**, **has failed**, **is skipped**. A
 logging hiccup must never block an export.
+
+### 10.0 The rejection shape
+
+Three paths reject and terminate: invalid input (§10.1), not authorised (§10.2), and a
+concurrency claim (§10.2b). All three use the same six steps in the same order, with different
+names and messages. It is written once here and referenced below.
+
+| # | Action | Value |
+|---|---|---|
+| a | `Set varStatus …` | `Invalid` or `Unauthorised` |
+| b | `Set varMessage …` | the message the user will read |
+| c | `Has log item …` — Condition on `greater(variables('varLogItemId'),0)` → `Update log item …` | `02` Log 1½ field list |
+| d | `Respond …` | outputs per §15 |
+| e | `Set varResponded …` | `true` |
+| f | `Terminate …` | status **`Cancelled`** |
+
+Three things this ordering gets right, and all three were wrong in v1:
+
+- **The log update comes before the Terminate.** `Terminate` ends the run immediately — §14.1
+  never runs, and `Scope - Catch` does **not** run after a Terminate either. Without step (c) the
+  log item stays `Running` forever and `02`'s "Stuck runs" view fills with people who forgot to
+  pick a country.
+- **The response comes before the Terminate**, or PowerApps waits for its own timeout and the user
+  sees nothing at all.
+- **`Cancelled`, not `Failed`.** A user typing nothing into a picker is not a flow failure, and the
+  run-history failure count is something you will want to trust.
 
 ### 10.1 `Validate inputs` — Condition
 
@@ -225,16 +317,7 @@ or(empty(variables('varCountry')),
    empty(variables('varExportType')))
 ```
 
-**If true**, in this order:
-
-| # | Action | Value |
-|---|---|---|
-| a | `Set varStatus invalid` | `Invalid` |
-| b | `Set varMessage invalid` | expression below |
-| c | `Update log item invalid` | inside a condition on `greater(variables('varLogItemId'),0)` |
-| d | `Respond invalid` | outputs per §15 |
-| e | `Set varResponded invalid` | `true` |
-| f | `Terminate invalid` | status **`Cancelled`** |
+**If true**, run the §10.0 shape with `varStatus` = `Invalid` and:
 
 ```
 concat('Cannot export: ',
@@ -243,56 +326,108 @@ concat('Cannot export: ',
   if(empty(variables('varExportType')),concat('export type "',trim(coalesce(triggerBody()?['text_1'],'(blank)')),'" is not Inventory or Requests. '),''))
 ```
 
-Three things v1 got wrong here, all fixed above:
+**`empty()` does not catch whitespace** — `empty(' ')` is `false`. §2 trims before storing, so a
+country of one space is now genuinely empty here.
 
-- **`empty()` does not catch whitespace.** §2 trims before storing, so a country of one space is
-  now genuinely empty.
-- **The log update.** `Terminate` ends the run immediately — §10.6 never runs, and `Scope - Catch`
-  does **not** run after a Terminate either. Without step (c) the log item stays `Running` forever
-  and `02`'s "Stuck runs" view fills with people who forgot to pick a country.
-- **`Cancelled`, not `Failed`.** A user typing nothing into a picker is not a flow failure, and
-  the run-history failure count is something you will want to trust.
+### 10.2 `Check authorisation`
 
-### 10.2 `Check authorisation` — optional but recommended
+`Get items` on the **Country Admins** list (schema in `08` §1.4):
 
-`Get items` on a **Country Admins** list, filter
-`Email eq '@{variables('varActionedBy')}' and Country eq '@{replace(variables('varCountry'),'''','''''')}'`,
-Top Count 1. If `equals(length(body('Check_authorisation')?['value']),0)` → same six-step shape as
-§10.1 with a "not authorised for <country>" message and `Set varStatus unauthorised` = `Invalid`.
+```
+Filter: AdminEmail eq '@{variables('varActionedByOData')}' and Country eq '@{variables('varCountryOData')}'
+Top Count: 1
+```
+
+**If** `equals(length(body('Check_authorisation')?['value']),0)` → §10.0 shape with
+`varStatus` = `Unauthorised` and
+
+```
+concat('You are not registered as a local admin for ', variables('varCountry'),
+       '. If this is wrong, ask a Super Admin to add you to the Country Admins list.')
+```
+
+`Unauthorised` is its own log status rather than `Invalid`, so a security question can be answered
+with a view filter instead of a text search (`02` §Views, "Rejected attempts").
 
 **Be honest about what this is.** There is no trustworthy caller identity on a PowerApps V2
 trigger — `ActionedBy` is a parameter the caller supplies, and anyone the app is shared with can
 call the flow directly with any parameters. This check stops casual misuse and gives you an audit
-trail. It is **not** an access control. Record that residual risk rather than implying it's closed.
+trail. It is **not** an access control. `09` §5 records that as a residual risk rather than
+implying it is closed.
+
+### 10.2b `Claim concurrency` — Requests only
+
+Wrap in a Condition on `equals(variables('varExportType'),'Requests')`.
+
+`Get items` on SIM Export Log:
+
+```
+Filter: Status eq 'Running' and ExportType eq 'Requests'
+        and Country eq '@{variables('varCountryOData')}'
+        and ID lt @{variables('varLogItemId')}
+        and Created gt '@{addMinutes(utcNow(),-30)}'
+Top Count: 1
+Order By: ID desc
+```
+
+**If anything comes back** → §10.0 shape with `varStatus` = `Invalid` and
+
+```
+concat('An export for ', variables('varCountry'), ' is already running — started at ',
+       formatDateTime(first(body('Claim_concurrency')?['value'])?['Created'],'HH:mm'),
+       ' UTC by ', first(body('Claim_concurrency')?['value'])?['ActionedBy_email'],
+       '. Wait for it to finish, then try again.')
+```
+
+**`ID lt varLogItemId` is the whole trick, and v2 was missing it.** This flow's own log item was
+created at §8 with status `Running`, before this check runs. A filter without the ID clause finds
+that item and the export rejects itself — every single time. With it, a run only defers to an
+export that started *before* it did, so two simultaneous clicks produce one winner and one clear
+message rather than two rejections or two handovers.
+
+Why not trigger concurrency: turning it on is **irreversible**, and it would queue inventory
+exports behind requests exports for no benefit. This claim is reversible, visible in the list, and
+it names the run rather than silently queueing.
+
+Why only Requests: two simultaneous inventory exports produce two identical read-only files, which
+is harmless. Two simultaneous requests exports both read the same unstamped rows and both hand
+them over.
 
 ### 10.3 `Compose requests filter`
 
 ```
-concat('CountryName eq ''', replace(variables('varCountry'),'''',''''''),
+concat('CountryName eq ''', variables('varCountryOData'),
        ''' and OrderStatus eq ''Approved'' and RequestType ne ''Delegate''',
        if(variables('varReExport'), '', ' and ExportedOn eq null'))
 ```
 
 Three clauses, each earning its place:
 
-- `replace(…,'''','''''')` doubles any apostrophe. Without it `Côte d'Ivoire` terminates the OData
-  string early and the query fails. It looks like a typo and isn't.
-- `RequestType ne 'Delegate'` — v1 omitted this, so Delegate rows were fetched and counted. The
-  probe said "3 rows", the script wrote 0 provider rows, and the log computed `No data` on a run
-  that had already created a file and returned a URL to it.
+- `CountryName` — the leading, indexed clause. It must narrow below 5,000 rows or SharePoint
+  throttles the query regardless of what follows.
+- `RequestType ne 'Delegate'` — a Delegate request never goes to a provider. Without this clause
+  Delegate rows are fetched and counted: the probe says "3 rows", the script writes 0 provider
+  rows, and the log computes `No data` on a run that already created a file and returned a URL.
 - `ExportedOn eq null` — the double-handover guard (§12), dropped when `ReExport` is set.
+
+> **Verify how `ne` treats a blank `RequestType`.** In CAML, `Neq` on a null value typically
+> *excludes* the row — so a request with no type set would vanish from the export entirely rather
+> than being reported as unmapped. `08` §6 test 4 covers it. If blanks are excluded, either make
+> `RequestType` required on the list or replace the clause with an explicit allow-list of the
+> provider-facing values.
 
 `Compose inventory filter`:
 
 ```
-concat('SIM_Country eq ''', replace(variables('varCountry'),'''',''''''), '''')
+concat('SIM_Country eq ''', variables('varCountryOData'), '''')
 ```
+
+`OrderStatus eq 'Approved'` assumes the choice value is exactly `Approved` — `00` open item O2.
 
 ### 10.4 `Switch source` — the probe
 
 Switch on `variables('varExportType')`. Both `Get items` use **Top Count**
-`@{add(variables('varThreshold'),1)}`, **Pagination OFF**, and **Limit Columns by View** pointed at
-a view containing only the exported columns.
+`@{add(variables('varThreshold'),1)}`, **Pagination OFF**, and **Limit Columns by View**.
 
 | Case | Action | Setting |
 |---|---|---|
@@ -300,6 +435,12 @@ a view containing only the exported columns.
 | | `Set varItems inventory` | `body('Get_inventory_probe')?['value']` |
 | `Requests` | `Get requests probe` | Global Order List · Filter `@{outputs('Compose_requests_filter')}` |
 | | `Set varItems requests` | `body('Get_requests_probe')?['value']` |
+
+> **The view behind `Limit Columns by View` must contain `ID`.** It is not returned automatically
+> when column limiting is on. Without it `item()?['ID']` is null, which means a blank `RequestID`
+> column in the provider workbook and an empty stamp list — the export appears to work and
+> prevents nothing. The same trap applies in reverse: a column added to the export map but not to
+> the view exports empty and errors nowhere. `08` §1.5 lists both views' exact contents.
 
 **Why a Switch rather than one dynamic `Get items`.** The List Name field accepts an expression,
 but then Power Automate can't infer the dynamic-content schema and every downstream
@@ -325,20 +466,22 @@ greater(outputs('Compose_probe_count'), 0)
 
 #### If FALSE — nothing to export
 
-For Inventory, one message. For Requests, "nothing to export" now has three distinct causes and
-the admin needs to know which — so run one diagnostic query before answering.
+For Inventory, one message. For Requests, "nothing to export" has three distinct causes and the
+admin needs to know which, so run one diagnostic query before answering.
 
 | # | Action | Detail |
 |---|---|---|
 | a | `Is requests export` — Condition | `equals(variables('varExportType'),'Requests')` |
-| a1 | ↳ `Get requests diagnostic` | Order List, filter `CountryName eq '…' and OrderStatus eq 'Approved'`, Top 5000, columns limited to `RequestType` + `ExportedOn` |
+| a1 | ↳ `Get requests diagnostic` | Order List, filter `CountryName eq '@{variables('varCountryOData')}' and OrderStatus eq 'Approved'`, Top 5000, view limited to `ID`, `RequestType`, `ExportedOn` |
 | a2 | ↳ `Filter array delegate` | from `body('Get_requests_diagnostic')?['value']` where `equals(item()?['RequestType']?['Value'],'Delegate')` |
 | a3 | ↳ `Filter array exported` | where `not(equals(item()?['ExportedOn'],null))` |
 | a4 | ↳ `Set varMessage requests none` | expression below |
 | b | `Set varMessage inventory none` *(else branch)* | `concat('No SIMs found for ', variables('varCountry'), '.')` |
 | c | `Set varStatus no data` | `No data` |
-| d | `Respond no data` | §15 |
-| e | `Set varResponded no data` | `true` |
+| d | `Has log item no data` — Condition on `varLogItemId > 0` → `Update log item no data` | `02` Log 2 field list, Delivery `None` |
+| e | `Respond no data` | §15 |
+| f | `Set varResponded no data` | `true` |
+| g | `Terminate no data` | status **`Succeeded`** |
 
 ```
 if(equals(length(body('Get_requests_diagnostic')?['value']),0),
@@ -348,13 +491,20 @@ if(equals(length(body('Filter_array_exported')),length(body('Get_requests_diagno
 if(equals(length(body('Filter_array_delegate')),length(body('Get_requests_diagnostic')?['value'])),
    concat(length(body('Filter_array_delegate')), ' approved requests for ', variables('varCountry'), ', none require provider action.'),
    concat('Nothing new to send for ', variables('varCountry'), ' — ', length(body('Filter_array_exported')), ' already sent, ', length(body('Filter_array_delegate')), ' are Delegate.'))))
+
 ```
+
+**The diagnostic is informational and capped at 5,000.** It exists to phrase a message, not to
+drive a decision. A country with more than 5,000 approved requests will produce a count that
+undercounts; that is acceptable for a sentence and unacceptable for a filter, which is why the
+real filter (§10.3) is the one that is paginated and indexed.
 
 **No file is created.** An empty workbook forwarded to a provider is worse than nothing.
 
-#### If TRUE — build and deliver
+**Terminate with `Succeeded`**, not `Cancelled`: "no approved requests" is the process working.
+`02` already gives it its own log status so it stays out of the failure views.
 
-Continue to §11.
+#### If TRUE — continue to §11
 
 ---
 
@@ -373,22 +523,39 @@ lessOrEquals(outputs('Compose_probe_count'), variables('varThreshold'))
 | a | `Set varAsync` | `true` |
 | b | `Set varMessage queued` | `@{concat('Export of ', outputs('Compose_probe_count'), '+ rows started. You will receive an email when it is ready.')}` |
 | c | `Set varStatus queued` | `Queued` |
-| d | `Update log item queued` | so a long run doesn't look stuck; guard on `varLogItemId > 0` |
+| d | `Has log item queued` — Condition on `varLogItemId > 0` → `Update log item queued` | so a long run doesn't look stuck |
 | e | `Respond queued` | §15 — **the app unblocks here** |
 | f | `Set varResponded queued` | `true` |
-| g | `Switch source full` | same two cases as §10.4, **Top Count 5000, Pagination ON, threshold 100000**, each ending `Set varItems full` |
+| g | `Switch source full` | two cases below, **Top Count 5000, Pagination ON, threshold 100000** |
+
+| Case | Actions |
+|---|---|
+| `Inventory` | `Get inventory full` → `Set varItems inventory full` |
+| `Requests` | `Get requests full` → `Set varItems requests full` |
+
+**Both `Set` actions write to `varItems`, but they are two differently-named actions.** Power
+Automate requires globally unique action names; two Switch cases cannot both contain
+`Set varItems full`. v2 specified exactly that and the flow will not save.
 
 `Respond to a PowerApp` returns values and the flow keeps running. That is the whole trick: the
 user is told "on its way" in about four seconds and a 60,000-row export takes as long as it takes.
 
 **If TRUE** — nothing to do. `varItems` already holds every row from the probe.
 
+> **Scale caveat, worth measuring before you trust it (`08` §6 test 8).** At 60,000 rows,
+> `varItems` and `varShaped` each hold a large array, and §11.5 evaluates
+> `take(skip(variables('varShaped'), …), …)` once per iteration — 120 iterations over the same
+> large array. If that proves slow or hits an action size limit, the fallback is the paging pattern
+> the import flow already uses (`../SIM Inventory/Import_Flow_Spec.md` §5): loop over `Get items`
+> pages and shape one page at a time, so the whole dataset never sits in a variable. Do not
+> restructure pre-emptively; do measure at full volume before go-live.
+
 ### 11.2 `Compose template path`
 
 ```
 if(equals(variables('varExportType'),'Inventory'),
-   '/Documents/SIM_Inventory_TEMPLATE.xlsx',
-   '/Documents/SIM_Request_Handover_TEMPLATE.xlsx')
+   parameters('simri_InventoryTemplate'),
+   parameters('simri_HandoverTemplate'))
 ```
 
 ### 11.3 `Get template` → `Create export file`
@@ -396,35 +563,39 @@ if(equals(variables('varExportType'),'Inventory'),
 | Action | Setting |
 |---|---|
 | `Get template` | SharePoint **Get file content using path** · Path `@{outputs('Compose_template_path')}` |
-| `Create export file` | SharePoint **Create file** · Folder `/SIM Exports/Files` · Name `@{variables('varFileName')}` · Content `body('Get_template')` |
+| `Create export file` | SharePoint **Create file** · Folder `@{parameters('simri_ExportLibrary')}` · Name `@{variables('varFileName')}` · Content `body('Get_template')` |
 | `Set varFileCreated` | `true` |
 | `Set varFileUrl` | `body('Create_export_file')?['{Link}']` |
-
-v1 duplicated these inside each Switch case, which meant two different action names and therefore
-two of every downstream reference. One Compose collapses them into one.
 
 **Take the URL from the connector, never build it.** `{Link}` is the absolute, correctly-encoded
 URL. A hand-built path breaks the day someone renames the library, or on any character needing
 encoding beyond a space — and a library's *URL* often differs from its *display name*.
 
+**Reference the file by `{Identifier}` in the Excel actions**, not by path. Referring to a
+just-created file by path can hit a brief propagation delay and fail with "file not found" on fast
+runs.
+
 ### 11.4 `Switch shape` — Switch on `variables('varExportType')`
 
-**Case `Inventory`** — `Shape inventory`, a Select over `variables('varItems')` producing the 20
-writable columns of `Table_query`, then `Set varShaped` = `body('Shape_inventory')`.
+**Case `Inventory`:** `Shape inventory` (Select over `variables('varItems')`, producing the 20
+writable columns of `Table_query`), then **`Set varShaped inventory`** = `body('Shape_inventory')`.
 
-Note the template's writable columns are **not contiguous**: A–S plus **U (IMEI)**. Column T and
-V–AC hold the check formulas (`IsPhoneValid`, `PhoneClean`, `ICC_Check`, `IMEI_Check`,
-`Date_Check`, `Status_Check`, `SIMType_Check`, `RowErrors`, `HasError`) and must be left alone —
-that is what `repairFormulas: true` is for.
+The template's writable columns are **not contiguous**: A–S plus **U (IMEI)**. Column T and V–AC
+hold the check formulas (`IsPhoneValid`, `PhoneClean`, `ICC_Check`, `IMEI_Check`, `Date_Check`,
+`Status_Check`, `SIMType_Check`, `RowErrors`, `HasError`) and must be left alone — that is what
+`CopyRowsIntoTable`'s `repairFormulas: true` and `columnsCsv` are for.
 
-**Case `Requests`** — `Shape requests`, a Select over `variables('varItems')`, then
-`Set varShaped` = `body('Shape_requests')`. The map, using the explicit allow-list from
-`04_Order_List_Schema.md`:
+**Case `Requests`:** `Shape requests` (Select over `variables('varItems')`), then
+**`Set varShaped requests`** = `body('Shape_requests')`. Two differently-named `Set` actions again,
+for the same reason as §11.1g.
+
+The map, using the explicit allow-list from `04_Order_List_Schema.md`:
 
 ```json
 {
   "requestId":        "@{item()?['ID']}",
   "requestType":      "@{item()?['RequestType']?['Value']}",
+  "country":          "@{variables('varCountry')}",
   "gdid":             "@{item()?['GDID']}",
   "requestedFor":     "@{item()?['Requestedfor']}",
   "provider":         "@{item()?['Provider']}",
@@ -445,48 +616,72 @@ that is what `repairFormulas: true` is for.
 }
 ```
 
-`?['Value']` on the three Choice columns and `?['DisplayName']` on the User column are not
-optional — without them a Choice serialises as an object and lands in the sheet as
-`[object Object]`. `VRCompatible` is a real Boolean, so `true`/`false` reaches the provider unless
-converted.
+Six notes, each of which produces a broken workbook if missed:
 
-`currentIccid` duplicates `iccid` deliberately: the Swap sheet has two ICCID columns and the
-script matches payload keys to table headers by name (§16), so `Current ICCID` needs a key of its
-own. `New ICCID`, `EffectiveDate` and `ProviderNotes` are absent on purpose — they are the
-provider's to fill.
+- **`?['Value']` on the three Choice columns and `?['DisplayName']` on the User column are not
+  optional.** Without them a Choice serialises as an object and lands in the sheet as
+  `[object Object]`.
+- **`VRCompatible` is a real Boolean**, so `true`/`false` reaches the provider unless converted.
+- **`requestId` is a string** here, because `@{…}` interpolation coerces to text. That is
+  deliberate and it must stay that way: §12.3 compares it against `varSkippedIds`, which the
+  script produces as strings, and `contains()` does not match `"1201"` against `1201`. If someone
+  "improves" this to `int(item()?['ID'])`, stamping silently stops excluding skipped rows.
+- **`country` is new in v3.** `06` §4's `IsPhoneValid` check compares a number's prefix against
+  `tblCountries[DialCode]` matched on a country column, and the handover sheets have no country of
+  their own — there is one country per file. A hidden `Country` column on each sheet, populated
+  from this key by header matching, keeps the inventory template's formula unchanged.
+- **`currentIccid` duplicates `iccid` deliberately.** The Swap sheet has two ICCID columns and the
+  script matches payload keys to table headers by name (§17), so `Current ICCID` needs a key of
+  its own.
+- **`New ICCID`, `EffectiveDate` and `ProviderNotes` are absent on purpose** — they are the
+  provider's to fill.
 
 **Allow-list, not "everything except".** A column added to the Order List next year defaults to
 *not* being sent, which is the safe direction. `WorkHistory`, `ApprovalPlanJson`, `Justification`
-and `LineManager` never leave the building.
+and `LineManager` never leave the building. `09` §1 records this as the data-minimisation control.
 
 ### 11.5 `Do until write chunks`
 
 **Condition:** `greaterOrEquals(variables('varChunkOffset'), length(variables('varShaped')))`
 
 **Limits: Count `5000`, Timeout `PT2H`.** This is not optional. The defaults are Count 60 and
-Timeout PT1H, and when the count limit is hit the loop **exits normally — it does not fail**. At
+Timeout PT1H, and **when the count limit is hit the loop exits normally — it does not fail**. At
 60,000 rows and 500 per chunk that is 120 iterations, so the flow would report success, log the
 *intended* row count, return a URL, and hand over a workbook missing half its rows. Nothing
-anywhere would show an error. It is the highest-consequence defect in v1 precisely because the
-resulting file looks perfectly normal.
+anywhere would show an error. It is the highest-consequence defect this design has to defend
+against, precisely because the resulting file looks perfectly normal.
 
 Inside the loop, in order:
 
 | # | Action | Value |
 |---|---|---|
 | a | `Compose chunk` | `take(skip(variables('varShaped'), variables('varChunkOffset')), variables('varChunkSize'))` |
-| b | `Compose is final chunk` | `lessOrEquals(add(variables('varChunkOffset'), length(outputs('Compose_chunk'))), length(variables('varShaped')))` → see note |
+| b | `Compose is final chunk` | expression below |
 | c | `Switch script` | two cases below |
 | d | `Increment varChunkOffset` | `length(outputs('Compose_chunk'))` |
 
-For (b), the final chunk is the one after which the offset reaches the total:
+**(b) `Compose is final chunk` — emits a literal string, not a boolean:**
 
 ```
-greaterOrEquals(add(variables('varChunkOffset'), length(outputs('Compose_chunk'))), length(variables('varShaped')))
+if(greaterOrEquals(add(variables('varChunkOffset'), length(outputs('Compose_chunk'))),
+                   length(variables('varShaped'))),
+   'true', 'false')
 ```
 
-For (d), increment by the **actual** chunk length, not by `varChunkSize` — otherwise the last,
-partial chunk overshoots and the loop's own accounting disagrees with §11.6's assertion.
+The final chunk is the one after which the offset reaches the total. Two things about this to hold
+onto:
+
+- **v2's table showed `lessOrEquals`.** That is true for *every* chunk, including the first — so
+  chunk 1 would finalize: `_Meta` written, empty tabs deleted, sheets protected, all before the
+  rest of the data was written. Chunk 2 then writes into a protected sheet, or into a table whose
+  worksheet has been deleted.
+- **It emits `'true'` / `'false'` as text on purpose**, so that the payload in §17 can drop it in
+  unquoted and produce a real JSON boolean. `string(true)` in Power Automate does not reliably
+  produce lowercase `true`, and `"finalize":"false"` in JSON parses to the string `"false"`, which
+  is **truthy** in JavaScript. That single mismatch finalizes every chunk.
+
+**(d) increment by the actual chunk length**, not by `varChunkSize` — otherwise the last, partial
+chunk overshoots and the loop's own accounting disagrees with §11.6's assertion.
 
 **`Switch script` — case `Inventory`:**
 
@@ -499,7 +694,8 @@ partial chunk overshoots and the loop's own accounting disagrees with §11.6's a
 
 | Action | Setting |
 |---|---|
-| `Run BuildRequestSheets` | payload in §16. **Retry policy: None.** |
+| `Compose requests payload` | §17 |
+| `Run BuildRequestSheets` | File `body('Create_export_file')?['{Identifier}']` · `payloadJson` `@{outputs('Compose_requests_payload')}`. **Retry policy: None.** |
 | `Set varBuildResult` | `body('Run_BuildRequestSheets')?['result']` |
 | `Set varSkippedIds` | `union(variables('varSkippedIds'), json(body('Run_BuildRequestSheets')?['result'])?['skippedIds'])` |
 
@@ -544,8 +740,9 @@ comment on it, so nobody "fixes" it six months from now.
 
 | Action | Value |
 |---|---|
-| `Parse build result` | Parse JSON over `json(variables('varBuildResult'))`, schema in §16 |
+| `Parse build result` | Parse JSON over `json(variables('varBuildResult'))`, schema in §17 |
 | `Set varRowsExported requests` | `body('Parse_build_result')?['cumulativeRows']` |
+| `Set varRowsSkipped requests` | `length(body('Parse_build_result')?['skipped'])` |
 | `Set varSheetBreakdown requests` | `body('Parse_build_result')?['breakdownText']` |
 | `Set varNotes requests` | expression below |
 
@@ -558,53 +755,84 @@ concat(
   'Written: ', body('Parse_build_result')?['breakdownText'])
 ```
 
-**Unmapped and Needs-attention rows are reported, not shipped.** v1 put them in tabs inside the
-workbook the provider receives — a provider opening `Needs attention` either actions those
-requests anyway or emails to ask. `01` §4's own goal ("the provider never sees a half-formed
-request") is met by keeping them out of the file and putting them here, in the response message,
-the email and the log's `Notes`. Silent data loss is still prevented; the provider just isn't the
-one told about it.
+**Unmapped and incomplete rows are reported, not shipped.** v1 put them in tabs inside the workbook
+the provider receives — a provider opening `Needs attention` either actions those requests anyway
+or emails to ask. `01` §4's goal is met by keeping them out of the file and putting them here, in
+the response message, the email and the log's `Notes`.
+
+### 11.7a `Nothing was written` — Condition, Requests only
+
+```
+and(equals(variables('varExportType'),'Requests'), equals(variables('varRowsExported'), 0))
+```
+
+**If true**, in order:
+
+| # | Action | Value |
+|---|---|---|
+| a | `Set varStatus nothing written` | `No data` |
+| b | `Set varMessage nothing written` | expression below |
+| c | `Delete empty export file` | SharePoint Delete file · `body('Create_export_file')?['{Identifier}']` |
+| d | `Set varFileCreated false` | `false` |
+| e | `Set varFileUrl empty` | *(empty string)* |
+| f | `Has log item nothing written` — Condition on `varLogItemId > 0` → `Update log item nothing written` | `02` Log 2 field list, Delivery `None` |
+| g | `Respond nothing written` | §15 |
+| h | `Set varResponded nothing written` | `true` |
+| i | `Terminate nothing written` | status **`Succeeded`** |
+
+```
+concat('Nothing could be sent for ', variables('varCountry'), '. All ',
+       variables('varRowsSkipped'), ' approved request(s) were rejected before handover. ',
+       variables('varNotes'))
+```
+
+**Why this path has to exist.** The probe found rows, so a file was created, but the script routed
+every one of them to `skipped` — all unmapped, or all missing a mandatory field. The workbook now
+contains nothing but the Instructions sheet, because the finalize step deleted every empty tab.
+v2 would have set `Rows_Exported = 0`, logged `No data`, and still returned a link to that file
+with the message "Export ready: 0 rows". Deleting the file and saying what actually happened is
+the only useful behaviour.
+
+The requests are left unstamped, so once the data is fixed the next export picks them up.
 
 ### 11.8 Delivery URLs
 
 | Action | Value |
 |---|---|
-| `Create sharing link` | SharePoint · File Identifier `body('Create_export_file')?['{Identifier}']` · Link type **View** · Scope **Organization** |
-| `Set varShareUrl` | `body('Create_sharing_link')?['link']?['webUrl']` |
-| `Compose download url` | `concat('https://deutschebank.sharepoint.com/sites/simri/_layouts/15/download.aspx?SourceUrl=', encodeUriComponent(body('Create_export_file')?['{Path}']))` |
+| `Create sharing link` | SharePoint · File Identifier `body('Create_export_file')?['{Identifier}']` · Link type **View** · Scope **Organization**. *Configure run after* on the next action includes **has failed** |
+| `Set varShareUrl` | `coalesce(body('Create_sharing_link')?['link']?['webUrl'], '')` |
+| `Compose download url` | `concat(parameters('simri_SiteUrl'), '/_layouts/15/download.aspx?SourceUrl=', encodeUriComponent(body('Create_export_file')?['{Path}']))` |
 | `Set varDownloadUrl` | `outputs('Compose_download_url')` |
 | `Set varStatus completed` | `Completed` |
 | `Set varMessage ready` | `@{concat('Export ready: ', variables('varRowsExported'), ' rows. ', variables('varSheetBreakdown'))}` |
 
 **`Create sharing link` answers the delivery question `00` left open.** The link carries its own
 access grant, so library permissions stop mattering — and a permissions gap was the whole reason
-`download.aspx` surfaced as an uncatchable browser error. It also works identically on the sync
-and async paths, so you maintain one delivery mechanism rather than two.
+`download.aspx` surfaced as an uncatchable browser error.
 
-Scope **Organization**, not Anyone: the file contains employee names and delivery addresses.
-Since the admin forwards it to the provider by hand today, an organisation-scoped link is right —
-revisit if the flow ever mails the provider directly.
+**It must not be able to fail the export.** Organisation-scoped link creation can be blocked by a
+tenant sharing policy, and a policy change must not destroy an export whose file is already built
+and whose rows are about to be stamped. Set the run-after so the flow continues, `coalesce` the
+result to empty, and let `varDownloadUrl` carry the delivery. `08` §6 test 9 covers this.
 
-Keep `download.aspx` as the in-app `Launch()` target if you want the forced-download behaviour;
-use the sharing link in the email.
-
-**`Set varMessage ready` is new.** In v1 `varMessage` was set on the invalid, no-data and queued
-paths but never on success — so `gblExport.message` was empty exactly when the user succeeded.
+**Scope Organization, not Anyone**: the file contains employee names and delivery addresses. And
+note what that means in practice — **the provider cannot open this link.** It is for the admin,
+who downloads the workbook and forwards the file itself. See `09` §3 before anyone puts this URL
+in an email to a supplier.
 
 ---
 
 ## 12. Stamping — preventing the double handover
 
-Requests only, and only when rows actually reached a provider tab. This is `01` §1, and it is the
-only failure in the whole design that costs real money: an approved request exported twice means
-a second SIM provisioned and a bill for a line nobody asked for.
+Requests only, and only when rows actually reached a provider sheet. This is `01` §1, and it is
+the only failure in the whole design that costs real money.
 
 **Why stamp rather than transition `OrderStatus`.** A status transition means extending the choice
 column and hunting down every view, filter and flow that keys on `Approved` — including ones you
 don't own. Two additive columns break nothing, and `ExportRunId` does double duty as the key the
-return-leg import needs.
+return-leg import needs and as the key §16.6 uses to undo a partial stamp.
 
-**Why `$batch` rather than `Apply to each`.** `SharePoint — Update item` is one API call per row,
+**Why `$batch` rather than `Apply to each`.** `SharePoint — Update item` is one API call per row
 against a connector limit of roughly 600 calls per 60 seconds. Two thousand rows on the
 **synchronous** path — where PowerApps gives you 120 seconds total — will not finish. Stamping via
 `Apply to each` quietly makes the sync path async, defeating the reason `00` chose a threshold at
@@ -628,10 +856,9 @@ Everything below runs inside the TRUE branch.
 utcNow()
 ```
 
-Set it **once**, here.
-
-Not inside the loop. `utcNow()` in a loop drifts, and every request in one handover should carry
-one timestamp — that is what makes "this batch went out together" answerable later.
+Set it **once**, here — not inside the loop. `utcNow()` in a loop drifts, and every request in one
+handover should carry one timestamp. That is what makes "this batch went out together" answerable
+later, and it is what lets §16.6 identify exactly which rows this run stamped.
 
 ### 12.3 `Filter array stampable`
 
@@ -641,8 +868,12 @@ From `variables('varShaped')`, advanced condition:
 @not(contains(variables('varSkippedIds'), item()?['requestId']))
 ```
 
-Rows the script routed to unmapped or needs-attention were never sent, so they must stay
-unstamped and be picked up by the next export.
+Rows the script routed to unmapped or incomplete were never sent, so they must stay unstamped and
+be picked up by the next export.
+
+Both sides of this comparison are **strings** — `varSkippedIds` because the script emits
+`String(id)`, and `requestId` because `@{…}` interpolation coerces. `contains()` on an array is an
+exact match, so a type change on either side silently stops excluding anything.
 
 ### 12.4 `Select stamp ids`
 
@@ -672,7 +903,7 @@ From `body('Filter_array_stampable')`, map (text mode): `@{item()?['requestId']}
 '--changeset_', outputs('Compose_changeset_id'), decodeUriComponent('%0D%0A'),
 'Content-Type: application/http', decodeUriComponent('%0D%0A'),
 'Content-Transfer-Encoding: binary', decodeUriComponent('%0D%0A%0D%0A'),
-'PATCH https://deutschebank.sharepoint.com/sites/simri/_api/web/lists(guid''e390b86b-13bb-4655-b3e6-efd5bd068279'')/items(', item(), ') HTTP/1.1', decodeUriComponent('%0D%0A'),
+'PATCH ', parameters('simri_SiteUrl'), '/_api/web/lists(guid''', parameters('simri_OrderListId'), ''')/items(', item(), ') HTTP/1.1', decodeUriComponent('%0D%0A'),
 'Content-Type: application/json;odata=nometadata', decodeUriComponent('%0D%0A'),
 'Accept: application/json;odata=nometadata', decodeUriComponent('%0D%0A'),
 'IF-MATCH: *', decodeUriComponent('%0D%0A%0D%0A'),
@@ -680,9 +911,9 @@ From `body('Filter_array_stampable')`, map (text mode): `@{item()?['requestId']}
 )}
 ```
 
-`decodeUriComponent('%0D%0A')` is how you get a literal CRLF into a Power Automate expression.
-The `$batch` MIME parser is strict about line endings — a bare LF is rejected — and typing a real
-newline into the designer is unreliable. This idiom is the reason the expression looks the way it
+`decodeUriComponent('%0D%0A')` is how you get a literal CRLF into a Power Automate expression. The
+`$batch` MIME parser is strict about line endings — a bare LF is rejected — and typing a real
+newline into the designer is unreliable. That idiom is the reason the expression looks the way it
 does.
 
 **(e) `Compose batch body`:**
@@ -701,7 +932,7 @@ join(body('Select_changeset_parts'), ''),
 
 | | |
 |---|---|
-| Site Address | `https://deutschebank.sharepoint.com/sites/simri` |
+| Site Address | `@{parameters('simri_SiteUrl')}` |
 | Method | `POST` |
 | Uri | `_api/$batch` |
 | Headers | `Content-Type` : `@{concat('multipart/mixed; boundary="batch_', outputs('Compose_batch_id'), '"')}` |
@@ -710,11 +941,18 @@ join(body('Select_changeset_parts'), ''),
 | Retry | **None** |
 
 The connector handles the form digest for you. The boundary in the header must match the one in
-the body exactly, which is why both come from the same Compose.
+the body exactly, which is why both come from the same Compose. Put the Body expression in
+directly — do not wrap it in quotes, or the connector sends a JSON string rather than a multipart
+document.
 
-**(g) `Check batch response`** — a `$batch` call returns **HTTP 200 even when individual
-operations inside it failed**. Without this check, stamping silently does nothing and the double
-handover you built all this to prevent happens anyway.
+> `Send an HTTP request to SharePoint` is a high-privilege action and is blocked by DLP policy in
+> some tenants. Confirm it is permitted before you build (`08` §3). If it is not, the fallback is
+> `Apply to each` with `Update item`, concurrency 4–8, and `varThreshold` lowered to about 300 —
+> the sync path cannot absorb 2,000 sequential item updates.
+
+**(g) `Check batch response`** — a `$batch` call returns **HTTP 200 even when individual operations
+inside it failed**. Without this check, stamping silently does nothing and the double handover you
+built all this to prevent happens anyway.
 
 Condition:
 
@@ -723,62 +961,61 @@ or(contains(string(body('Send_stamp_batch')), 'HTTP/1.1 4'),
    contains(string(body('Send_stamp_batch')), 'HTTP/1.1 5'))
 ```
 
-**If true** → `Set varMessage stamp failed` naming the offset, then
-`Force failure stamp` (Compose, `@{div(1,0)}`) to route into the catch. A file that was built but
-whose rows weren't stamped must not be delivered — the next export would send them again.
+A successful PATCH returns `HTTP/1.1 204`, which matches neither pattern.
 
-### 12.6 Soft concurrency claim — instead of trigger concurrency
+**If true** → `Set varMessage stamp failed` naming the offset, then `Force failure stamp` (Compose,
+`@{div(1,0)}`) to route into the catch. A file that was built but whose rows weren't stamped must
+not be delivered — the next export would send them again. §16.6 then undoes the rows that *were*
+stamped before the failure.
 
-`03` v1 said leave trigger concurrency off; `01` §6 said set it to 1 once stamping exists. Both
-can't hold: two admins exporting the same country simultaneously both read the same unstamped
-rows and both hand them over.
+> Verify on the first run where the connector puts a multipart response — `body('Send_stamp_batch')`
+> or `outputs('Send_stamp_batch')?['body']`. `08` §6 test 6 says to read one raw response by hand
+> before trusting the parser, which is the same advice the import spec gives for the same reason.
 
-**Turning on trigger concurrency is irreversible** — the designer warns you and means it. It also
-queues *inventory* exports behind requests exports, which is a cost you get nothing for.
+### 12.6 `Set varNotes stamped`
 
-Instead, add to §10.2: `Get items` on SIM Export Log filtered
-`Status eq 'Running' and Country eq '…' and ExportType eq 'Requests' and Created gt '@{addMinutes(utcNow(),-30)}'`,
-Top 1. If anything comes back, reject with "an export for Romania is already in progress, started
-at …". Reversible, visible in the list, and it names the run rather than silently queueing.
-
-### 12.7 `Set varNotes stamped`
-
-Append to `varNotes`:
+**`Append to string variable`** on `varNotes`:
 
 ```
-@{concat(variables('varNotes'), ' | Stamped ', variables('varStampedCount'), ' request(s) with RunId ', variables('varRunId'), if(variables('varReExport'),' (RE-EXPORT)',''))}
+@{concat(' | Stamped ', variables('varStampedCount'), ' request(s) with RunId ', variables('varRunId'), if(variables('varReExport'),' (RE-EXPORT)',''))}
 ```
+
+Use `Append to string variable`, not a `Set variable` that references itself. The import flow does
+the same, and a self-referencing `Set` has documented ordering hazards the append does not.
 
 ---
 
 ## 13. `Read upload gate` — free data-quality reporting
 
-Inventory only. The template already computes everything needed and the flow currently ignores it.
+Inventory only, inside a condition on `equals(variables('varExportType'),'Inventory')`, placed
+after §11.6 and before §11.7. The template already computes everything needed and v2's flow
+ignored it.
 
 `Config!J2` is the named range **`UploadGate`**:
 `=IF(COUNTIF(Table_query[HasError],"ERROR")=0,"OK","BLOCKED")`, with `UploadGate_ErrorCount` at
 `J3`. Because both use structured references over `Table_query`, they cover every written row —
 unlike the conditional formatting, which stops at row 1966 (see `06_Handover_Template_Spec.md`).
 
-Add a small Office Script `ReadUploadGate` that returns
-`{ "gate": "OK|BLOCKED", "errorCount": n }` as a JSON string, then two actions after §11.6, inside
-a condition on `equals(variables('varExportType'),'Inventory')`:
+Add a small Office Script `ReadUploadGate` returning `{ "gate": "OK|BLOCKED", "errorCount": n }` as
+a JSON string, then:
 
 | Action | Setting |
 |---|---|
-| `Run ReadUploadGate` | Excel Run script · File `body('Create_export_file')?['{Identifier}']` · Retry **None** |
-| `Set varDataErrors` | `int(json(body('Run_ReadUploadGate')?['result'])?['errorCount'])` |
-
-Then append to `varNotes` when non-zero:
+| `Run ReadUploadGate` | Excel Run script · File `body('Create_export_file')?['{Identifier}']` · Retry **None** · *run after* on the next action includes **has failed** |
+| `Set varDataErrors` | `int(coalesce(json(body('Run_ReadUploadGate')?['result'])?['errorCount'], 0))` |
+| `Append varNotes data errors` | **Append to string variable** on `varNotes`, expression below |
 
 ```
-@{concat(variables('varNotes'), ' | ', variables('varDataErrors'), ' exported row(s) fail validation — see the RowErrors column.')}
+@{if(greater(variables('varDataErrors'),0),
+     concat(' | ', variables('varDataErrors'), ' exported row(s) fail validation — see the RowErrors column.'),
+     '')}
 ```
 
 This costs one script call and turns every inventory export into a data-quality audit of that
-country's estate, using the Luhn checks, dial-code checks and date checks already built and
-tested in the template. Do not *block* on it — the export is a read, and the admin may be
-exporting precisely because they want to see the bad rows.
+country's estate, using the Luhn checks, dial-code checks and date checks already built and tested
+in the template. **Do not block on it** — the export is a read, and the admin may be exporting
+precisely because they want to see the bad rows. For the same reason it must not be able to fail
+the run: continue on failure and report zero.
 
 ---
 
@@ -788,54 +1025,45 @@ exporting precisely because they want to see the bad rows.
 equals(variables('varAsync'), true)
 ```
 
-- **If TRUE** → `Send export email` to `variables('varActionedBy')` with `varShareUrl` as a
-  **link**, never an attachment. A 60,000-row workbook is around 28 MB against Outlook's ~25 MB
-  cap. Style it on the import emails in `../SIM Inventory/Email_Templates.md`. Include
-  `varSheetBreakdown` and `varNotes` — the skipped-request list is the part the admin must act on.
+- **If TRUE** → `Send export email` to `variables('varActionedBy')` with `varShareUrl` (falling
+  back to `varDownloadUrl` when empty) as a **link**, never an attachment. A 60,000-row workbook is
+  around 28 MB against Outlook's ~25 MB cap. Style it on the import emails in
+  `../SIM Inventory/Email_Templates.md`. Include `varSheetBreakdown` and `varNotes` — the
+  skipped-request list is the part the admin must act on.
 - **If FALSE** → `Respond ready` (§15), then `Set varResponded ready` = `true`.
 
-Exactly one `Respond to a PowerApp` executes on every path: `Respond invalid`, `Respond no data`,
+Exactly one `Respond to a PowerApp` executes on every path: `Respond invalid`,
+`Respond unauthorised`, `Respond claim rejected`, `Respond no data`, `Respond nothing written`,
 `Respond queued` or `Respond ready`.
 
 ## 14.1 `Update log item` — LOG 2
 
 Last action **inside** `Scope - Main`, wrapped in a condition on
-`greater(variables('varLogItemId'), 0)`. Outside the scope, a failure sending the email would
-leave the log claiming `Running` on a run that produced a file.
+`greater(variables('varLogItemId'), 0)`. Outside the scope, a failure sending the email would leave
+the log claiming `Running` on a run that produced a file.
 
 Repopulate **every** field — SharePoint's `Update item` writes the whole item and blanks anything
-left empty. Values in `02_Export_Log.md`, with two corrections from the review:
+left empty. Values in `02_Export_Log.md`, Log 2. Two of them are worth repeating here because they
+were wrong in v1:
 
 ```
-Delivery = @{if(variables('varAsync'),'Emailed','Link returned')}
+Delivery = @{if(equals(variables('varRowsExported'),0),'None',if(variables('varAsync'),'Emailed','Link returned'))}
+Status   = @{if(equals(variables('varRowsExported'),0),'No data',variables('varStatus'))}
 ```
 
-Not `if(greater(varRowsExported, threshold), …)`. The async decision was made on the **probe
+`Delivery` comes from `varAsync`, not from a row count. The async decision was made on the **probe
 count**; rows written is lower after Delegate and skipped rows come out. A probe of 2,100 that
-writes 1,950 would have logged "Link returned" for a run that emailed — misreporting exactly at
-the boundary the field exists to help you tune.
+writes 1,950 would have logged "Link returned" for a run that emailed — misreporting exactly at the
+boundary the field exists to help you tune.
 
-```
-Status = @{if(equals(variables('varRowsExported'),0),'No data',variables('varStatus'))}
-```
-
-And two fields that consume variables set earlier but referenced nowhere else in this document —
-listed here so the cross-reference is complete:
-
-```
-ExportFile Url         = @{variables('varFileUrl')}      — from §11.3, the {Link} value
-ExportFile Description = @{variables('varFileName')}
-Notes                  = @{variables('varNotes')}        — skipped requests, stamping, data errors
-```
-
-`varShareUrl` goes to the email (§14) and the response (§15), not to the log — the sharing link
-is a delivery artefact, and `{Link}` is the stable address of the file itself.
+`varShareUrl` goes to the email (§14) and the response (§15), not to the log — the sharing link is
+a delivery artefact, and `{Link}` is the stable address of the file itself.
 
 ---
 
 ## 15. Respond to a PowerApp — outputs
 
-The same five outputs on all four Respond actions, so PowerApps has one shape to handle.
+The same five outputs on **every** Respond action, so PowerApps has one shape to handle.
 
 | Output | Type | Value |
 |---|---|---|
@@ -851,17 +1079,27 @@ In PowerApps:
 
 ```
 UpdateContext({locBusy: true});
-Set(gblExport, SIMExports.Run(
-    Trim(drpCountry.Selected.Value), "Requests", User().Email, tglReExport.Value));
+IfError(
+    Set(gblExport, SIMExports.Run(
+        Trim(drpCountry.Selected.Value), "Requests", User().Email, tglReExport.Value)),
+    Set(gblExport, {status: "Failed",
+                    message: "The export could not be started. Please try again, and tell IT if it keeps happening.",
+                    fileUrl: "", shareUrl: "", rows: 0})
+);
 UpdateContext({locBusy: false});
 Switch(gblExport.status,
-  "Completed", Launch(gblExport.fileUrl),
-  "Queued",    Notify(gblExport.message, NotificationType.Information),
-  "No data",   Notify(gblExport.message, NotificationType.Warning),
-  "Invalid",   Notify(gblExport.message, NotificationType.Error),
-               Notify(gblExport.message, NotificationType.Error)
+  "Completed",    Launch(gblExport.fileUrl),
+  "Queued",       Notify(gblExport.message, NotificationType.Information),
+  "No data",      Notify(gblExport.message, NotificationType.Warning),
+  "Invalid",      Notify(gblExport.message, NotificationType.Error),
+  "Unauthorised", Notify(gblExport.message, NotificationType.Error),
+                  Notify(gblExport.message, NotificationType.Error)
 )
 ```
+
+**`IfError` is not optional.** If the flow fails before any Respond runs — or if `Scope - Catch`
+itself fails — `Run()` throws and, without the wrapper, the app shows a raw Power Fx error and
+`locBusy` is never cleared, leaving the Export button disabled until the screen is reloaded.
 
 Bind the Export button's `DisplayMode` to `If(locBusy, DisplayMode.Disabled, DisplayMode.Edit)`.
 And show `gblExport.shareUrl` in a selectable label — if the browser blocks the popup from
@@ -873,46 +1111,106 @@ And show `gblExport.shareUrl` in a selectable label — if the browser blocks th
 
 *Configure run after* `Scope - Main` → **has failed**, **is skipped**, **has timed out**.
 
-Every reference in here must be resolvable **no matter how early the failure happened**. v1 stated
-this rule and then broke it three times. An error handler that can fail is not an error handler.
+Every reference in here must be resolvable **no matter how early the failure happened.** An error
+handler that can fail is not an error handler. Every action below refers only to variables,
+literals, or actions defined inside this scope.
 
 | # | Action | Detail |
 |---|---|---|
-| 16.1 | `Compose error detail` | expression below |
-| 16.2 | `Has log item` — Condition `greater(variables('varLogItemId'),0)` → `Update log item failed` | `Status = Failed`, `ErrorMessage = @{outputs('Compose_error_detail')}` |
+| 16.1 | `Filter array failed actions` → `Compose error detail` | below |
+| 16.2 | `Has log item failed` — Condition `greater(variables('varLogItemId'),0)` → `Update log item failed` | `02` Log 3 |
 | 16.3 | `Can respond` — Condition `equals(variables('varResponded'), false)` → `Respond failed` | `status = Failed`, a message a user can read |
 | 16.4 | `Else` → `Send failure email` | to `varActionedBy` — the only channel left once a response has gone |
 | 16.5 | `Was file created` — Condition `equals(variables('varFileCreated'), true)` → `Delete partial file` | *Configure run after* includes **has failed** |
-| 16.6 | `Terminate failed` | Status `Failed` |
+| 16.6 | `Was anything stamped` — Condition `greater(variables('varStampedCount'), 0)` → the compensation below | |
+| 16.7 | `Terminate failed` | Status `Failed` |
 
-**16.1** — v1's `string(result('Scope_-_Main'))` returns the results of *every* action in the
-scope, including the `Get items` bodies and the `Select` outputs. On a 60,000-row export that is
-tens of megabytes of JSON being pushed into a SharePoint multi-line text field. Extract just the
-failure:
+### 16.1 Extracting the error
+
+**`where()` is not a Power Automate expression function.** v2 used it and the expression cannot be
+saved. The collection functions are `contains, empty, first, intersection, item, join, last,
+length, reverse, skip, sort, take, union` — filtering a collection needs the **Filter array**
+action.
+
+**`Filter array failed actions`** — Data Operation:
 
 ```
-substring(
-  coalesce(
-    string(first(where(result('Scope_-_Main'), equals(item()?['status'],'Failed')))?['error']),
-    variables('varMessage'),
-    'Scope - Main failed with no action-level error (usually a timeout).'),
-  0, 2000)
+From:  result('Scope_-_Main')
+Where: item()?['status']  is equal to  Failed
 ```
 
-`coalesce` matters: a scope *timeout* produces no failed child action, so the first argument is
-null and you would otherwise write an empty error message on precisely the runs worth
-investigating. Falling back to `varMessage` also carries §11.6's and §12.5's deliberate-failure
-messages through to the log.
+**`Compose error detail`:**
 
-**16.3 / 16.4** — this is the async hole in v1. `Respond queued` has already fired on that path,
-and only one response may execute per run; a second `Respond failed` fails, taking the catch scope
-down with it. The user was promised an email and gets silence, and nothing is logged. The
-condition splits the two cases: respond if nobody has, email if someone has.
+```
+if(greater(length(coalesce(string(first(body('Filter_array_failed_actions'))?['error']?['message']),'')), 0),
+   if(greater(length(string(first(body('Filter_array_failed_actions'))?['error']?['message'])), 1900),
+      concat(substring(string(first(body('Filter_array_failed_actions'))?['error']?['message']), 0, 1900), ' … truncated'),
+      string(first(body('Filter_array_failed_actions'))?['error']?['message'])),
+   if(greater(length(variables('varMessage')), 0),
+      variables('varMessage'),
+      'Scope - Main failed with no action-level error, which usually means a timeout. See the flow run link.'))
+```
 
-**16.5** — v1 guarded on `not(empty(varFileName))`, but `varFileName` is set at §7, long before
-any file exists. Any failure between §8 and §11.3 entered the catch with a populated filename and
-no file, `Delete file` returned 404, and the catch failed. `varFileCreated` is the honest signal.
-Set the run-after to continue on failure too — deleting a stray file is best-effort.
+Three things it is defending against:
+
+- **`substring` throws when the string is shorter than the requested length.** `substring(s,0,2000)`
+  on a 40-character error message is an error inside the error handler. The length guard is the
+  same pattern `../SIM Inventory/Logging_System.md` already uses for its 60,000-character cap.
+- **`string(result('Scope_-_Main'))` may be enormous.** `result()` returns the results of *every*
+  action in the scope, including the `Get items` bodies. On a 60,000-row export that is tens of
+  megabytes of JSON pushed into a SharePoint multi-line text field with a 63,999-character limit.
+- **A scope timeout produces no failed child action**, so the filter returns empty and the fallback
+  chain matters. Falling back to `varMessage` also carries §11.6's and §12.5's deliberate-failure
+  messages through to the log.
+
+Note that `coalesce` alone is not enough here: an empty string is not null, so
+`coalesce('', variables('varMessage'))` returns the empty string. Hence the explicit
+`greater(length(…),0)` tests.
+
+Also note that `result()` returns the scope's **top-level** actions. A failure deep inside
+`Switch script` surfaces as the container's result with the underlying error nested in it, so the
+extracted message is sometimes one level less specific than the run history. The `FlowRun` link in
+the log is the full detail; this field is the summary.
+
+### 16.3 / 16.4 — why the response is conditional
+
+This is the async hole v1 had. `Respond queued` has already fired on that path, and only one
+response may execute per run; a second `Respond failed` fails, taking the catch scope down with it.
+The user was promised an email and gets silence, and nothing is logged. The condition splits the
+two cases: respond if nobody has, email if someone has.
+
+### 16.5 — why the guard is `varFileCreated`
+
+v1 guarded on `not(empty(varFileName))`, but `varFileName` is set at §7, long before any file
+exists. Any failure between §8 and §11.3 entered the catch with a populated filename and no file,
+`Delete file` returned 404, and the catch failed. `varFileCreated` is the honest signal. Set the
+run-after to continue on failure too — deleting a stray file is best-effort.
+
+### 16.6 `Undo partial stamps` — the compensation
+
+Runs only when `varStampedCount > 0`. Without it, the worst failure in the design is still
+reachable: §12.5 fails on batch 7 of 20, the file is deleted, and 600 requests are marked as handed
+over to a provider that never received them. They will never appear in another export, and nobody
+will know until an employee asks where their SIM is.
+
+Because §12.2 stamps one `ExportRunId` for the whole run, the rows to undo are exactly identifiable:
+
+| # | Action | Detail |
+|---|---|---|
+| a | `Get stamped rows` | `Get items` on the Order List · Filter `ExportRunId eq '@{variables('varRunId')}'` · Top 5000 · Pagination ON · view limited to `ID` |
+| b | `Select unstamp ids` | from `body('Get_stamped_rows')?['value']`, text mode, `@{item()?['ID']}` |
+| c | `Do until unstamp batches` | same shape as §12.5, with the PATCH body `{"ExportedOn":null,"ExportRunId":null}` |
+| d | `Append varNotes compensated` | `@{concat(' | COMPENSATION: cleared the export stamp from ', length(body('Select_unstamp_ids')), ' request(s) after a stamping failure. They will be picked up by the next export.')}` |
+
+Set *Configure run after* on each so a compensation failure still reaches `Terminate failed` —
+but if (c) fails, the note in (d) will not be written, so **also** log the RunId in the failure
+email. A compensation that fails is a manual cleanup, and the person doing it needs one filter:
+`ExportRunId eq '<runId>'`.
+
+> The window between the first successful batch and the compensation is small but real. If the flow
+> is cancelled by an administrator in that window, neither the catch nor the compensation runs. The
+> "Stuck runs" view plus `ExportRunId` is the manual recovery path, and `08` §7 documents it as a
+> runbook step rather than leaving it to be rediscovered.
 
 ---
 
@@ -920,44 +1218,119 @@ Set the run-after to continue on failure too — deleting a stray file is best-e
 
 Full script in `BuildRequestSheets.ts`. Template requirements in `06_Handover_Template_Spec.md`.
 
-**Payload in** — one string parameter, `payloadJson`:
+### Building the payload — `Compose requests payload`
 
-```json
-{
-  "runId": "a7f3c9e1-…",
-  "country": "Romania",
-  "exportedUtc": "2026-08-15T14:22:00Z",
-  "startRowIndex": 0,
-  "totalExpectedRows": 2400,
-  "finalize": false,
-  "textHeaders": ["PhoneNr","ICCID","Current ICCID","New ICCID","StartDate","EffectiveDate"],
-  "requests": [ { …one shaped object per Order List item… } ],
-  "typeMap": [
-    { "type": "New SIM",     "sheet": "New SIM",     "table": "tbl_NewSIM",
-      "required": ["gdid","requestedFor","provider","deliveryAddress"] },
-    { "type": "Terminate",   "sheet": "Terminate",   "table": "tbl_Terminate",
-      "required": ["gdid","requestedFor","provider","phoneNr"] },
-    { "type": "Swap",        "sheet": "Swap",        "table": "tbl_Swap",
-      "required": ["gdid","requestedFor","provider","iccid","newSimType"] },
-    { "type": "Transfer",    "sheet": "Transfer",    "table": "tbl_Transfer",
-      "required": ["gdid","requestedFor","provider","phoneNr","transferdTo"] },
-    { "type": "Change plan", "sheet": "Change plan", "table": "tbl_ChangePlan",
-      "required": ["gdid","requestedFor","provider","phoneNr","newPlan"] }
-  ]
-}
+The script's parameter is a **string** that it `JSON.parse`s, so the flow must produce valid JSON
+text with the right JSON *types*. Build it exactly like the import flow does
+(`../SIM Inventory/Import_Flow_Spec.md` §5a) — `string(json(concat(…)))`, with numbers and
+booleans left unquoted:
+
+```
+string(json(concat('{
+ "runId":"', variables('varRunId'), '",
+ "country":"', variables('varCountry'), '",
+ "actionedBy":"', variables('varActionedBy'), '",
+ "exportedUtc":"', variables('varStartedUtc'), '",
+ "startRowIndex":', variables('varChunkOffset'), ',
+ "totalExpectedRows":', length(variables('varShaped')), ',
+ "finalize":', outputs('Compose_is_final_chunk'), ',
+ "rowKeyHeader":"RequestID",
+ "textHeaders":', string(outputs('Compose_text_headers')), ',
+ "typeMap":', string(outputs('Compose_type_map')), ',
+ "requests":', string(outputs('Compose_chunk')), '
+}')))
 ```
 
-In the designer, build this with a Compose and reference `outputs('Compose_chunk')` for
-`requests`, `outputs('Compose_is_final_chunk')` for `finalize`.
+**The `json()` wrapper is not decoration.** It parses the string, which means a malformed payload
+fails *here*, in an action whose name tells you what went wrong, rather than inside the Office
+Script as a `JSON.parse` error 500 characters into a blob.
+
+**Why the types matter more than they look:**
+
+- `"startRowIndex":"0"` reaches the script as the string `"0"`. `p.startRowIndex === 0` is then
+  `false`, so **`assertTemplate()` never runs** — and that is the guard that refuses to write when
+  an ICCID column has lost its Text format. The export succeeds and quietly truncates every ICCID
+  past the 15th digit.
+- `"finalize":"false"` reaches the script as the string `"false"`, and **every non-empty string is
+  truthy in JavaScript**. Every chunk finalizes: sheets protected and empty tabs deleted after
+  chunk 1.
+
+`Compose is final chunk` (§11.5b) emits the bare text `true` or `false` precisely so it can sit
+unquoted here. The script also coerces both values defensively, but do not rely on that — a payload
+with the wrong types is wrong for the next person too.
+
+`Compose text headers` and `Compose type map` are two root-level Composes, defined once alongside
+§5 and §6 so the loop does not rebuild them 120 times.
+
+**`Compose text headers`:**
+
+```json
+["PhoneNr","ICCID","Current ICCID","New ICCID","StartDate","EffectiveDate","GDID","simInventoryID"]
+```
+
+**`Compose type map`** — `type` values must match the Order List's `RequestType` choice values
+exactly (`00` open item O1); `sheet` and `table` must match the handover template:
+
+```json
+[
+  { "type": "New SIM",     "sheet": "New SIM",     "table": "tbl_NewSIM",
+    "required": ["gdid","requestedFor","provider","deliveryAddress"],
+    "blankHeaders": ["PhoneNr","ICCID","StartDate"] },
+  { "type": "Terminate",   "sheet": "Terminate",   "table": "tbl_Terminate",
+    "required": ["gdid","requestedFor","provider","phoneNr"],
+    "blankHeaders": [] },
+  { "type": "Swap",        "sheet": "Swap",        "table": "tbl_Swap",
+    "required": ["gdid","requestedFor","provider","iccid","newSimType"],
+    "blankHeaders": [] },
+  { "type": "Transfer",    "sheet": "Transfer",    "table": "tbl_Transfer",
+    "required": ["gdid","requestedFor","provider","phoneNr","transferdTo"],
+    "blankHeaders": [] },
+  { "type": "Change plan", "sheet": "Change plan", "table": "tbl_ChangePlan",
+    "required": ["gdid","requestedFor","provider","phoneNr","newPlan"],
+    "blankHeaders": [] }
+]
+```
+
+**`blankHeaders`** is new in v3. On the New SIM sheet, `PhoneNr`, `ICCID` and `StartDate` are the
+provider's to fill — but the payload carries keys of the same name, so header matching would
+pre-fill them with whatever the Order List happens to hold. Listing them here forces those columns
+blank on that sheet only. Making it a deliberate list rather than an accident of which fields are
+usually empty is the point.
 
 **No column lists in the payload.** The script reads each table's header row from the template and
-matches headers to payload keys by normalised name (`Current ICCID` → `currenticcid`). Add a
-column to the template and it populates itself if a matching key exists, or stays blank if not —
-and the blank ones come back in `unfilledHeaders` so you can confirm they are the intended fill-in
-columns. This removes the entire class of "the script's column list drifted from the template"
-bug that `01` §7 flags, and it means `Delegate`'s absence is enforced by there being no tab for it.
+matches headers to payload keys by normalised name (`Current ICCID` → `currenticcid`). Add a column
+to the template and it populates itself if a matching key exists, or stays blank if not — and the
+blank ones come back in `unfilledHeaders` so you can confirm they are the intended fill-in columns.
+This removes the entire class of "the script's column list drifted from the template" bug, and it
+means `Delegate`'s absence is enforced by there being no tab for it.
 
-**Returns** a JSON string — dynamic keys can't be schema'd, same as the import script:
+**Columns with no matching payload key are never written.** That is what protects the check
+formulas. See §17's "What the script writes" below — it is the single most important behaviour in
+the script and v2 got it wrong.
+
+### What the script writes — and what it must not touch
+
+The script follows the same pattern as the production `CopyRowsIntoTable`, for the same reason:
+
+1. Headers whose normalised name matches a payload key are **data columns** — written.
+2. Every other header is left **untouched**. That covers the check formula columns (`ICC_Check`,
+   `Date_Check`, `RowErrors`, `HasError`, …) and the provider fill-in columns
+   (`New ICCID`, `EffectiveDate`, `ProviderNotes`).
+3. After writing, formula columns are re-filled down from the template's prototype row using
+   `autoFill(fillCopy)`, which adjusts relative references exactly as dragging the fill handle
+   would.
+
+v2's script built a full-width array and wrote `""` into every column without a payload key. One
+export and every check formula in the provider workbook is replaced by a literal empty string.
+Excel does not restore it. Nothing turns red, nothing errors, and the file looks fine — which is
+why it would have survived testing.
+
+This is also why `06` requires each table to ship with **exactly one prototype data row** holding
+the check formulas: `autoFill` needs a source row, and a table with zero rows has none.
+
+### Returns
+
+A JSON string — dynamic keys can't be schema'd, same as the import script:
 
 ```json
 {
@@ -965,19 +1338,21 @@ bug that `01` §7 flags, and it means `Delegate`'s absence is enforced by there 
   "cumulativeRows": 2380,
   "breakdown": [{ "sheet": "New SIM", "rows": 1840 }],
   "breakdownText": "New SIM: 1840 · Terminate: 420 · Swap: 120",
-  "skippedIds": [1201, 1355],
+  "skippedIds": ["1201", "1355"],
   "skipped": [
-    { "id": 1201, "reason": "unmapped:Upgrade device" },
-    { "id": 1355, "reason": "missing:phoneNr,newPlan" }
+    { "id": "1201", "reason": "unmapped:Upgrade device" },
+    { "id": "1355", "reason": "missing:phoneNr,newPlan" }
   ],
-  "unfilledHeaders": ["EffectiveDate", "ProviderNotes"],
+  "unfilledHeaders": ["New ICCID", "EffectiveDate", "ProviderNotes"],
   "finalized": true
 }
 ```
 
-`cumulativeRows` is read back from the tables themselves rather than accumulated in the flow —
-the script has no memory between chunk invocations, so counting from the workbook is the only
-number that can't drift.
+**IDs are strings**, everywhere, on both sides. §12.3 depends on it.
+
+**`cumulativeRows` is counted from the workbook**, not accumulated in the flow — the script has no
+memory between chunk invocations, so counting the filled `RequestID` cells is the only number that
+cannot drift.
 
 **Parse JSON schema for §11.7:**
 
@@ -1004,33 +1379,66 @@ Leave `skippedIds` untyped — an empty array with a declared item type is a com
 |---|---|---|---|---|---|
 | Invalid input | 0 | 1 log | none | immediate | < 2s |
 | Not authorised | 1 | 1 log | none | immediate | < 3s |
+| Claim rejected | 2 | 1 log | none | immediate | < 3s |
 | No data (Inventory) | 1 probe | 1 log | none | immediate | < 3s |
 | No data (Requests) | 1 probe + 1 diag | 1 log | none | immediate | < 5s |
-| Sync ≤ 2000 rows | 1 probe | ≤20 batch + 1 log | built from `varShaped` | immediate, with URL | 15–40s |
-| Async > 2000 rows | 1 probe + paged | N batch + 1 log | built after responding | immediate, "we'll email it" | 4s to respond |
+| All requests skipped | 1 probe | 1 log + 1 delete | created, then deleted | immediate | 10–20s |
+| Sync ≤ 2000 rows | 1 probe | ≤20 `$batch` + 1 log | built from `varShaped` | immediate, with URL | 20–50s |
+| Async > 2000 rows | 1 probe + paged | N `$batch` + 1 log | built after responding | immediate, "we'll email it" | ~4s to respond |
+| Stamping failure | 1 probe + 1 recovery | N + N `$batch` + 1 log | built, then deleted | failure message or email | 30–90s |
 
-The sync path is slower than v1 predicted because stamping was added. At 2,000 rows: four script
-chunks plus twenty `$batch` calls. If real timings put that near 120 seconds, lower `varThreshold`
-rather than dropping the stamping — §12 is the only protection against the one failure that costs
-money.
+At 2,000 rows the sync path is four script chunks plus twenty `$batch` calls plus a sharing link.
+**If real timings put that near 120 seconds, lower `varThreshold` rather than dropping the
+stamping** — §12 is the only protection against the one failure that costs money. `02`'s
+`DurationSeconds` column and its "Threshold tuning" view exist to make that a measured decision.
 
-**Note on steady state.** Once the first export for a country is stamped, subsequent exports pick
-up only newly-approved requests. The "thousands" figure is a backlog, not a recurring load —
-after the first run per country, almost every export takes the sync path.
+**Steady state.** Once the first export for a country is stamped, subsequent exports pick up only
+newly-approved requests. The "thousands" figure is a backlog, not a recurring load — after the
+first run per country, almost every export takes the sync path.
 
 ---
 
-## 19. Still needed
+## 19. Monitoring
+
+The catch scope logs and responds, but nobody watches a SharePoint list. Build the **scheduled
+digest flow** in `02_Export_Log.md` §Alerting before go-live, not after the first missed failure.
+
+The one thing an in-catch email cannot do, and the digest can: surface the runs that reached
+neither terminal action. If the catch never ran, an email inside it never sends.
+
+---
+
+## 20. Still needed, and one thing planned for
+
+Open items are tracked in `00_Design_Decisions.md` §Open items. Repeating the three that block
+this document:
 
 1. **The exact `RequestType` choice values** — they become the `type` keys in `typeMap` and must
-   match the sheet and table names in the template. An unmatched value now goes to `skipped` with
-   reason `unmapped:<value>` rather than into the workbook.
+   match the sheet and table names in the template. An unmatched value goes to `skipped` with
+   reason `unmapped:<value>` and is left unstamped rather than lost, so a wrong guess is visible
+   and recoverable.
 2. **The `OrderStatus` value meaning approved** — §10.3 assumes `Approved`.
-3. **Confirm `Transfer` is provider-facing and distinct from `Delegate`.** `04` defines a Transfer
-   sheet, but a transfer between two employees on the same contract may be an internal-only change.
+3. **Confirm `Transfer` is provider-facing and distinct from `Delegate`.**
 
 Both choice value sets come from one query:
 
 ```
-_api/web/lists(guid'e390b86b-13bb-4655-b3e6-efd5bd068279')/fields?$filter=InternalName eq 'RequestType' or InternalName eq 'OrderStatus'&$select=InternalName,Choices
+_api/web/lists(guid'<simri_OrderListId>')/fields?$filter=InternalName eq 'RequestType' or InternalName eq 'OrderStatus'&$select=InternalName,Choices
 ```
+
+### If "export all my countries" is ever asked for
+
+Recorded here so it is found by whoever goes looking. Today the trigger takes one `Country` and
+that is a confirmed decision (`00`). Making it a list means:
+
+- `Country` becomes a delimited string or a JSON array; §4a escapes each element
+- Everything from §10.3 to §14 moves inside an `Apply to each` over countries, **concurrency 1**
+- One file, one sharing link and one log item **per country** — `varFileName`, `varFileUrl`,
+  `varLogItemId` and the whole log-write pattern become per-iteration, which is the real cost
+- The response returns a summary rather than a single URL, and the async threshold is evaluated on
+  the total rather than per country
+
+The stamping, the claim and the catch all work unchanged, because they are already keyed on
+country. The expensive part is that every single-file assumption becomes a collection — which is
+exactly the same shape of change `06` describes for the one-provider-per-country assumption, and
+for the same reason.
