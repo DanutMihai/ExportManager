@@ -273,7 +273,8 @@ const FLOW = [
          note:'ID lt varLogItemId is the whole trick: this flow’s OWN log item is already Running by now, so without it every Requests export rejects itself. With it, a run only defers to an export that started before it did — one winner, one clear message.',
          noEmpty:'nothing — no earlier export is running, so this one continues to §10.3',
          yes:[
-           A('Set varStatus claim rejected','Variable','var',{note:'Invalid'}),
+           A('Set varStatus claim rejected','Variable','var',
+             {note:"'Blocked' — its own log status. Filed as Invalid it would be indistinguishable from a user who picked no country, and 'two admins are working the same country' is a process signal worth seeing.",flag:'new'}),
            A('Set varMessage claim rejected','Variable','var',{note:'Names the time and the admin already running it'}),
            {k:'if', name:'Has log item claim', expr:'greater(varLogItemId, 0)',
             yes:[A('Update log item claim','SharePoint · Update item','sp')], no:[]},

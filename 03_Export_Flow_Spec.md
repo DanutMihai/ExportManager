@@ -262,8 +262,12 @@ outputs('Compose_file_name')
 
 ## 8. `Create log item` — LOG 1
 
-SharePoint **Create item** on SIM Export Log. Field values in `02_Export_Log.md`. Status
-`Running`. Retry: **Exponential, 4**.
+SharePoint **Create item** on SIM Export Log. Status `Running`. Retry: **Exponential, 4**.
+
+**The complete field list is in `02_Export_Log.md` under LOG 1** — as it is for all nine log writes.
+That document is written to be built from with the designer open: every write point has its action
+name, its `Set varStatus` and `Set varMessage` expressions, every field, the Respond outputs and
+the Terminate status. This spec gives the control flow; `02` gives the values.
 
 ### Why this runs before the authorisation check, not after
 
@@ -328,9 +332,9 @@ names and messages. It is written once here and referenced below.
 
 | # | Action | Value |
 |---|---|---|
-| a | `Set varStatus …` | `Invalid` or `Unauthorised` |
-| b | `Set varMessage …` | the message the user will read |
-| c | `Has log item …` — Condition on `greater(variables('varLogItemId'),0)` → `Update log item …` | `02` Log 1½ field list |
+| a | `Set varStatus …` | `Invalid`, `Unauthorised` or `Blocked` |
+| b | `Set varMessage …` | the message the user will read — expression in `02`, one per path |
+| c | `Has log item …` — Condition on `greater(variables('varLogItemId'),0)` → `Update log item …` | **complete field list in `02`**, LOG 1a / 1b / 1c |
 | d | `Respond …` | outputs per §15 |
 | e | `Set varResponded …` | `true` |
 | f | `Terminate …` | status **`Cancelled`** |
@@ -435,10 +439,10 @@ where this gets built wrong:
 │   └─ ◆ Claim rejected             Condition · greater(length(body('Claim_concurrency')?['value']), 0)
 │       │
 │       ├─ IF YES  ── the §10.0 rejection shape, six actions, ending in Terminate
-│       │   ├─ {x} Set varStatus claim rejected      'Invalid'
+│       │   ├─ {x} Set varStatus claim rejected      'Blocked'
 │       │   ├─ {x} Set varMessage claim rejected     expression below
 │       │   ├─ ◆ Has log item claim                  greater(variables('varLogItemId'), 0)
-│       │   │   └─ IF YES ▤ Update log item claim    02 Log 1½ field list
+│       │   │   └─ IF YES ▤ Update log item claim    02 · LOG 1c field list
 │       │   ├─ ⚡ Respond claim rejected              §15 outputs
 │       │   ├─ {x} Set varResponded claim            true
 │       │   └─ ⛭ Terminate claim rejected            status Cancelled   ←── THE RUN ENDS HERE
@@ -1158,8 +1162,8 @@ Last action **inside** `Scope - Main`, wrapped in a condition on
 the log claiming `Running` on a run that produced a file.
 
 Repopulate **every** field — SharePoint's `Update item` writes the whole item and blanks anything
-left empty. Values in `02_Export_Log.md`, Log 2. Two of them are worth repeating here because they
-were wrong in v1:
+left empty. **Complete field list in `02_Export_Log.md` under LOG 2.** Two of them are worth
+repeating here because they were wrong in v1:
 
 ```
 Delivery = @{if(equals(variables('varRowsExported'),0),'None',if(variables('varAsync'),'Emailed','Link returned'))}
@@ -1206,6 +1210,7 @@ Switch(gblExport.status,
   "Completed",    Launch(gblExport.fileUrl),
   "Queued",       Notify(gblExport.message, NotificationType.Information),
   "No data",      Notify(gblExport.message, NotificationType.Warning),
+  "Blocked",      Notify(gblExport.message, NotificationType.Warning),
   "Invalid",      Notify(gblExport.message, NotificationType.Error),
   "Unauthorised", Notify(gblExport.message, NotificationType.Error),
                   Notify(gblExport.message, NotificationType.Error)

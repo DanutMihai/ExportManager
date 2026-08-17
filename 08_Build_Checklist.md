@@ -52,9 +52,13 @@ Full schema in `02_Export_Log.md`. Create it, verify internal names with the sam
 set permissions to **read for users, write for the flow's connection identity**, turn versioning
 **off**, and create the eight views listed there.
 
-Check the `Status` choice column has all **seven** values: `Running`, `Queued`, `Completed`,
-`No data`, `Unauthorised`, `Invalid`, `Failed`. SharePoint rejects a value that isn't in the list,
-and the flow writes all seven.
+Check the `Status` choice column has all **eight** values: `Running`, `Invalid`, `Unauthorised`,
+`Blocked`, `No data`, `Queued`, `Completed`, `Failed`. SharePoint rejects a value that isn't in the
+list, and the flow writes all eight — a missing one fails `Update item` on exactly the path where
+the log matters most.
+
+`02_Export_Log.md` is the build reference for this list: nine write points, each with its complete
+field list, message expressions and Respond outputs.
 
 ### 1.4 SIMRI Country Matrix — nothing to build
 
