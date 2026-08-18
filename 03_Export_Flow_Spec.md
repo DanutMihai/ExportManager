@@ -545,15 +545,51 @@ concat('SIM_Country eq ''', variables('varCountryOData'), '''')
 
 ### 10.4 `Switch source` — the probe
 
-Switch on `variables('varExportType')`. Both `Get items` use **Top Count**
-`@{add(variables('varThreshold'),1)}`, **Pagination OFF**, and **Limit Columns by View**.
+Switch **On:** `variables('varExportType')`. Two cases, no default case.
 
-| Case | Action | Setting |
-|---|---|---|
-| `Inventory` | `Get inventory probe` | Global SIM Inventory · Filter `@{outputs('Compose_inventory_filter')}` |
-| | `Set varItems inventory` | `body('Get_inventory_probe')?['value']` |
-| `Requests` | `Get requests probe` | Global Order List · Filter `@{outputs('Compose_requests_filter')}` |
-| | `Set varItems requests` | `body('Get_requests_probe')?['value']` |
+**Case `Inventory` → `Get inventory probe`** · SharePoint **Get items**
+
+| Field | Value |
+|---|---|
+| Site Address | `@{parameters('simri_SiteUrl')}` |
+| List Name | Global SIM Inventory · `@{parameters('simri_InventoryListId')}` |
+| Filter Query | `@{outputs('Compose_inventory_filter')}` |
+| Limit Columns by View | `FlowExport_Inventory` |
+| Top Count | `@{add(variables('varThreshold'),1)}` |
+| Order By | *(leave blank)* |
+| Settings → Pagination | **Off** |
+| Settings → Retry Policy | Exponential · Count 4 · Interval `PT10S` |
+| Settings → Timeout | *(leave blank — default)* |
+
+**Case `Inventory` → `Set varItems inventory`** · Variables **Set variable**
+
+| Field | Value |
+|---|---|
+| Name | `varItems` |
+| Value | `@{body('Get_inventory_probe')?['value']}` |
+
+**Case `Requests` → `Get requests probe`** · SharePoint **Get items**
+
+| Field | Value |
+|---|---|
+| Site Address | `@{parameters('simri_SiteUrl')}` |
+| List Name | Global Order List · `@{parameters('simri_OrderListId')}` |
+| Filter Query | `@{outputs('Compose_requests_filter')}` |
+| Limit Columns by View | `FlowExport_Requests` |
+| Top Count | `@{add(variables('varThreshold'),1)}` |
+| Settings → Pagination | **Off** |
+| Settings → Retry Policy | Exponential · Count 4 · Interval `PT10S` |
+
+**Case `Requests` → `Set varItems requests`** · Variables **Set variable**
+
+| Field | Value |
+|---|---|
+| Name | `varItems` |
+| Value | `@{body('Get_requests_probe')?['value']}` |
+
+**Both `Set variable` actions target the same variable, `varItems`.** That is intentional and legal
+— only the *action names* have to be unique, not the variable they write. Everything after this
+Switch is written once, against `varItems`, and does not care which case ran.
 
 > **The view behind `Limit Columns by View` must contain `ID`.** It is not returned automatically
 > when column limiting is on. Without it `item()?['ID']` is null, which means a blank `RequestID`
@@ -645,16 +681,72 @@ lessOrEquals(outputs('Compose_probe_count'), variables('varThreshold'))
 | d | `Has log item queued` — Condition on `varLogItemId > 0` → `Update log item queued` | so a long run doesn't look stuck |
 | e | `Respond queued` | §15 — **the app unblocks here** |
 | f | `Set varResponded queued` | `true` |
-| g | `Switch source full` | two cases below, **Top Count 5000, Pagination ON, threshold 100000** |
+| g | `Switch source full` | full configuration below |
 
-| Case | Actions |
+#### `Switch source full` — re-read the whole dataset
+
+Switch **On:** `variables('varExportType')`. Two cases, no default case.
+
+The probe (§10.4) stopped at `varThreshold + 1` rows, so on this path `varItems` holds 2,001 rows
+out of a possible 60,000. This Switch replaces it with the complete set. It is the *same query*
+with different paging settings — the filter Composes are reused, not rebuilt.
+
+**Case `Inventory` → `Get inventory full`** · SharePoint **Get items**
+
+| Field | Value |
 |---|---|
-| `Inventory` | `Get inventory full` → `Set varItems inventory full` |
-| `Requests` | `Get requests full` → `Set varItems requests full` |
+| Site Address | `@{parameters('simri_SiteUrl')}` |
+| List Name | Global SIM Inventory · `@{parameters('simri_InventoryListId')}` |
+| Filter Query | `@{outputs('Compose_inventory_filter')}` |
+| Limit Columns by View | `FlowExport_Inventory` |
+| Top Count | `5000` |
+| Order By | *(leave blank)* |
+| Settings → **Pagination** | **On** · Threshold `100000` |
+| Settings → Retry Policy | Exponential · Count 4 · Interval `PT10S` |
+| Settings → Timeout | *(leave blank — default)* |
 
-**Both `Set` actions write to `varItems`, but they are two differently-named actions.** Power
-Automate requires globally unique action names; two Switch cases cannot both contain
-`Set varItems full`. v2 specified exactly that and the flow will not save.
+**Case `Inventory` → `Set varItems inventory full`** · Variables **Set variable**
+
+| Field | Value |
+|---|---|
+| Name | `varItems` |
+| Value | `@{body('Get_inventory_full')?['value']}` |
+
+**Case `Requests` → `Get requests full`** · SharePoint **Get items**
+
+| Field | Value |
+|---|---|
+| Site Address | `@{parameters('simri_SiteUrl')}` |
+| List Name | Global Order List · `@{parameters('simri_OrderListId')}` |
+| Filter Query | `@{outputs('Compose_requests_filter')}` |
+| Limit Columns by View | `FlowExport_Requests` |
+| Top Count | `5000` |
+| Settings → **Pagination** | **On** · Threshold `100000` |
+| Settings → Retry Policy | Exponential · Count 4 · Interval `PT10S` |
+
+**Case `Requests` → `Set varItems requests full`** · Variables **Set variable**
+
+| Field | Value |
+|---|---|
+| Name | `varItems` |
+| Value | `@{body('Get_requests_full')?['value']}` |
+
+Four things about this block:
+
+- **Top Count and Pagination Threshold are different numbers doing different jobs.** With pagination
+  **On**, Top Count becomes the *page size* and the threshold is the *total ceiling*. 5000 per page
+  up to 100,000 rows is twelve calls at 60,000 rows. Leave Top Count at 5,000 — it is the connector
+  maximum per page, and smaller pages just mean more round trips.
+- **Pagination Off on the probe, On here** — that is the entire difference between the two Switches,
+  and it is why the probe can answer "is this big?" in one cheap call.
+- **Both `Set variable` actions write to `varItems`**, the same variable the probe wrote. Legal and
+  intended: only *action names* must be unique. Power Automate will not let you have
+  `Set varItems full` in both Switch cases, which is why they are named per case.
+- **The threshold must exceed your largest country.** At 100,000 against a 60,000-row ceiling there
+  is headroom. If a country ever passes 100,000 the connector stops silently at the threshold — the
+  same class of silent truncation as §11.5's loop cap, and §11.6's assertion will *not* catch it,
+  because `varShaped` would be built from the truncated read. Re-check this number if the estate
+  grows.
 
 `Respond to a PowerApp` returns values and the flow keeps running. That is the whole trick: the
 user is told "on its way" in about four seconds and a 60,000-row export takes as long as it takes.
@@ -1057,12 +1149,27 @@ join(body('Select_changeset_parts'), ''),
 | Headers | `Content-Type` : `@{concat('multipart/mixed; boundary="batch_', outputs('Compose_batch_id'), '"')}` |
 | | `Accept` : `application/json;odata=nometadata` |
 | Body | `@{outputs('Compose_batch_body')}` |
-| Retry | **None** |
+| Settings → Retry Policy | **Exponential · Count 4 · Interval `PT10S`** — see below |
+| Settings → Timeout | *(leave blank — default)* |
 
 The connector handles the form digest for you. The boundary in the header must match the one in
 the body exactly, which is why both come from the same Compose. Put the Body expression in
 directly — do not wrap it in quotes, or the connector sends a JSON string rather than a multipart
 document.
+
+> **Retry here, and *only* here among the write actions.** The two Run script actions are Retry
+> **None** because a retry after a partial write duplicates rows. This one is different, and the
+> difference is idempotency: the PATCH body is `{"ExportedOn": <varStampUtc>, "ExportRunId":
+> <varRunId>}`, both set **once per run** (§12.2), so re-sending the same batch writes the same two
+> values to the same rows. Doing it twice is indistinguishable from doing it once.
+>
+> That matters because SharePoint throttling (429) on batch 7 of 20 is a realistic event. With
+> Retry None it fails the export, triggers §16.6's compensation and makes the admin re-run for a
+> transient error. With Exponential/4 it is absorbed. `varStampedCount` increments *after* a
+> successful call, so a retried-then-succeeded batch still counts once.
+>
+> The same reasoning and the same policy apply to §16.6's unstamp batch, which PATCHes both fields
+> to `null`.
 
 > `Send an HTTP request to SharePoint` is a high-privilege action and is blocked by DLP policy in
 > some tenants. Confirm it is permitted before you build (`08` §3). If it is not, the fallback is
@@ -1490,6 +1597,98 @@ cannot drift.
 
 Leave `skippedIds` untyped — an empty array with a declared item type is a common source of
 "expected array of object, got array" on runs where nothing was skipped.
+
+---
+
+## 17a. Action settings reference — retry, timeout, run-after, concurrency
+
+Every setting that is **not** a connector field, in one place, because in the designer they live
+behind the `…` → **Settings** menu on each action and are the easiest thing to forget.
+
+### Which actions even have these settings
+
+| Action type | Retry Policy | Timeout | Run After | Concurrency |
+|---|---|---|---|---|
+| SharePoint, Excel Online, Outlook — any **connector** action | ✔ | ✔ | ✔ | — |
+| Respond to a PowerApp | — | ✔ | ✔ | — |
+| Compose, Select, Filter array, Parse JSON, Join | **✖ none exists** | ✔ | ✔ | — |
+| Initialize / Set / Increment / Append variable | **✖ none exists** | ✔ | ✔ | — |
+| Condition, Switch, Scope, Terminate | **✖ none exists** | — | ✔ | — |
+| Do until | **✖ none exists** | ✔ *(Limits: Count + Timeout)* | ✔ | — |
+| Apply to each | — | ✔ | ✔ | ✔ |
+
+**There is no retry policy on a Compose or a Set variable.** They are not connector calls. If you
+go looking for one you will not find it, and that is correct rather than a missing setting.
+
+**There are no `Apply to each` actions in this flow at all.** That is deliberate — §11.5 and §12.5
+are `Do until` loops over offsets, and shaping is done by a single `Select` rather than a loop.
+The only place a concurrency setting would ever appear is the `Apply to each` fallback in §12.5's
+DLP note, and that one is sequential-then-4-to-8 by design.
+
+### Retry policy — the default is wrong in three places
+
+**Every connector action defaults to Exponential, Count 4.** You only change it where a retry is
+unsafe:
+
+| Action | Retry | Why |
+|---|---|---|
+| `Create log item` §8 | Exponential · 4 · PT10S | write to our own log; a duplicate row is impossible because it returns the ID we then reuse |
+| All `Update log item …` | Exponential · 4 · PT10S | idempotent — writes the same field values |
+| `Check authorisation` §10.2, `Claim concurrency` §10.2b | Exponential · 4 · PT10S | reads |
+| `Get inventory/requests probe` §10.4, `… full` §11.1g, `Get requests diagnostic` §10.6 | Exponential · 4 · PT10S | reads |
+| `Get template` §11.3 | Exponential · 4 · PT10S | read |
+| `Create export file` §11.3 | Exponential · 4 · PT10S | the filename carries the RunId, so a retry overwrites the same file rather than making a second one |
+| **`Run CopyRowsIntoTable` §11.5** | **None** | a script that times out at 120s *after* writing rows would be retried, and the rows written again |
+| **`Run BuildRequestSheets` §11.5** | **None** | same |
+| **`Run ReadUploadGate` §13** | **None** | same class of action; and it must not be able to fail the run at all |
+| `Send stamp batch` §12.5 | Exponential · 4 · PT10S | **idempotent** — the PATCH body is fixed for the whole run, so re-sending writes the same two values. See §12.5(f) |
+| `Send unstamp batch` §16.6 | Exponential · 4 · PT10S | idempotent — PATCHes both fields to `null` |
+| `Create sharing link` §11.8 | None | it is allowed to fail; the flow falls back to the download URL |
+| `Delete partial file` §16.5, `Delete empty export file` §11.7a | None | a 404 on retry is noise; best-effort by design |
+| `Send export email` §14, `Send failure email` §16.4 | Exponential · 4 · PT10S | a duplicate email is better than a missing one |
+
+### Timeout
+
+**Leave every action timeout blank.** The defaults are correct for this flow, and the two limits
+that actually bind are not action timeouts:
+
+| Real limit | Value | Where it bites |
+|---|---|---|
+| PowerApps flow call | ~120 seconds | the whole sync path — `varThreshold` exists to stay under it |
+| Excel Online **Run script** | 120 seconds, hard | why §11.5 chunks at all. An action timeout cannot raise it |
+| `Do until write chunks` §11.5 | **Count `5000` · Timeout `PT2H`** | must be set — defaults are Count 60 / PT1H and the loop **exits normally** at the cap |
+| `Do until stamp batches` §12.5 | **Count `5000` · Timeout `PT1H`** | must be set, same reason |
+| `Do until unstamp batches` §16.6 | **Count `5000` · Timeout `PT1H`** | must be set, same reason |
+
+The three `Do until` limits are the only timeouts you type in this flow. Everything else is default.
+
+> If a paginated `Get items` over 60,000 rows ever does time out, that is a signal to move to the
+> import flow's page-at-a-time pattern (§11.1's scale note), not to raise a timeout.
+
+### Configure run after — every non-default setting
+
+Default everywhere is **has succeeded** only. These are the exceptions, and each exists to stop one
+specific failure:
+
+| Action | Run after | Why |
+|---|---|---|
+| `Set varLogItemId` §9 | **has succeeded** only *(explicitly)* | if `Create log item` failed, this must be skipped so `varLogItemId` stays `0` |
+| `Scope - Main` §10 | has succeeded · **has failed** · **is skipped** | a logging hiccup must never block an export |
+| `Set varShareUrl` §11.8 | has succeeded · **has failed** | a blocked sharing link must not fail an export whose file is already built |
+| `Set varDataErrors` §13 | has succeeded · **has failed** | a data-quality read must not fail the export it reports on |
+| `Scope - Catch` §16 | **has failed** · **is skipped** · **has timed out** | the whole point of the catch |
+| `Delete partial file` §16.5 | has succeeded · **has failed** | deleting a stray file is best-effort |
+| every action after a `Delete …` in the catch | has succeeded · **has failed** | one failed cleanup must not stop the rest of the handler |
+
+**Terminate is not covered by run-after.** `Scope - Catch` does **not** run after a `Terminate`, no
+matter how its run-after is configured. That is why every rejection path in §10.0 logs and responds
+*before* it terminates.
+
+### Trigger concurrency
+
+**Off. Do not turn it on.** It is irreversible in Power Automate — the designer warns you and means
+it — and it would queue inventory exports behind requests exports for no benefit. §10.2b's soft
+claim does the job, is reversible, and names the run that blocked you.
 
 ---
 

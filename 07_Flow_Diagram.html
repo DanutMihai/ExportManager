@@ -13,6 +13,7 @@
     --new:#0f6cbd; --fix:#a4262c;
     --radius:6px;
     --font:"Segoe UI",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+    --mono:"Cascadia Mono",Consolas,"SF Mono",monospace;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14px;line-height:1.45}
@@ -28,10 +29,12 @@
   .ctl input[type=range]{width:112px;accent-color:var(--data)}
   button.mini{padding:5px 11px;border:1px solid var(--line);background:var(--panel);border-radius:4px;font:inherit;font-size:12.5px;cursor:pointer;color:var(--ink)}
   button.mini:hover{background:var(--chip)}
+  button.mini.on{background:#eff6fc;border-color:var(--new);color:var(--new);font-weight:600}
   .legend{display:flex;flex-wrap:wrap;gap:5px 14px;margin-top:11px;font-size:11.5px;color:var(--muted)}
   .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
   .stats{font-size:11.5px;color:var(--muted);margin-top:7px}
   .stats b{color:var(--ink);font-weight:600}
+  .search{padding:5px 9px;border:1px solid var(--line);border-radius:4px;font:inherit;font-size:12.5px;width:180px}
 
   main{padding:26px 22px 90px}
   .viewport{overflow:auto;padding-bottom:20px}
@@ -47,16 +50,23 @@
 
   /* ---------- action card ---------- */
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
-    box-shadow:0 1px 2px rgba(0,0,0,.09);min-width:290px;max-width:330px;display:flex;overflow:hidden}
+    box-shadow:0 1px 2px rgba(0,0,0,.09);min-width:290px;max-width:330px;display:flex;overflow:hidden;
+    transition:max-width .12s ease}
+  .card.hascfg{cursor:pointer}
+  .card.open{width:700px;max-width:700px}
   .card.flag-new{border-color:var(--new);box-shadow:0 0 0 1px var(--new),0 1px 2px rgba(0,0,0,.09)}
   .card.flag-fix{border-color:var(--fix);box-shadow:0 0 0 1px var(--fix),0 1px 2px rgba(0,0,0,.09)}
   body.nohl .card.flag-new,body.nohl .card.flag-fix{border-color:var(--line);box-shadow:0 1px 2px rgba(0,0,0,.09)}
+  .card.hit{outline:3px solid #ffd67e;outline-offset:2px}
   .ico{width:38px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:600}
   .body{padding:8px 11px;flex:1;min-width:0}
-  .nm{font-weight:600;font-size:12.5px;word-break:break-word}
+  .nmrow{display:flex;align-items:baseline;gap:6px}
+  .nm{font-weight:600;font-size:12.5px;word-break:break-word;flex:1}
+  .gear{font-size:10px;color:var(--data);flex:none;user-select:none;white-space:nowrap}
+  .card.open .gear{color:var(--muted)}
   .ty{color:var(--muted);font-size:11px;margin-top:1px}
   .note{color:var(--muted);font-size:11px;margin-top:5px;border-top:1px dashed var(--line);padding-top:5px}
-  code{font-family:"Cascadia Mono",Consolas,monospace;font-size:10.5px;background:var(--chip);
+  code{font-family:var(--mono);font-size:10.5px;background:var(--chip);
     padding:1px 4px;border-radius:3px;word-break:break-all}
   .badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
   .b{font-size:10px;padding:1px 6px;border-radius:9px;background:var(--chip);color:var(--muted);white-space:nowrap}
@@ -64,9 +74,22 @@
   .b.g{background:#f1faf1;color:var(--ok);font-weight:600}
   .b.n{background:#eff6fc;color:var(--new);font-weight:600}
 
-  /* ---------- containers ----------
-     Every control that owns children gets a box, so it is always visible where a
-     branch stops and the parent sequence resumes. Colour = kind of container. */
+  /* ---------- the config panel ---------- */
+  .cfg{display:none;margin-top:8px;border-top:1px solid var(--line);padding-top:7px}
+  .card.open .cfg{display:block}
+  .cfg table{border-collapse:collapse;width:100%}
+  .cfg td{vertical-align:top;padding:3px 0;font-size:11px;border-bottom:1px solid #f0efee}
+  .cfg tr:last-child td{border-bottom:0}
+  .cfg td.k{color:var(--muted);padding-right:12px;width:150px;min-width:150px;font-weight:600;
+    font-size:10.5px;line-height:1.35}
+  .cfg td.v{font-family:var(--mono);font-size:10.5px;color:#252423;
+    white-space:pre-wrap;overflow-wrap:anywhere}
+  .cfg td.v em{font-family:var(--font);font-style:normal;color:var(--muted)}
+  .cfg tr.warnrow td.k,.cfg tr.warnrow td.v{color:var(--warn)}
+  .cfg tr.warnrow td.v{font-weight:600}
+  .cfghint{font-size:10.5px;color:var(--muted);margin-top:6px;font-style:italic}
+
+  /* ---------- containers ---------- */
   .box{border:1.5px solid var(--bc);border-radius:9px;background:var(--bg2);
        --bc:var(--edge); --bg2:rgba(255,255,255,.45)}
   .box.scope{--bc:#486991; --bg2:rgba(72,105,145,.055)}
@@ -77,7 +100,6 @@
   .box.flag-new>.boxhd{box-shadow:inset 0 0 0 1px var(--new)}
   .box.flag-fix>.boxhd{box-shadow:inset 0 0 0 1px var(--fix)}
   body.nohl .box.flag-new>.boxhd,body.nohl .box.flag-fix>.boxhd{box-shadow:none}
-  /* nested boxes of the same colour still separate, via depth shading */
   .box.d1{box-shadow:inset 0 0 0 100vmax rgba(255,255,255,.30)}
   .box.d2{box-shadow:inset 0 0 0 100vmax rgba(255,255,255,.52)}
   .box.d3{box-shadow:inset 0 0 0 100vmax rgba(255,255,255,.68)}
@@ -96,17 +118,24 @@
   .boxbody{padding:15px 20px 0}
   .box.collapsed .boxbody,.box.collapsed .boxft{display:none}
 
-  /* the explicit "you are now out of it" marker */
   .boxft{font-size:10.5px;color:var(--bc);text-align:center;padding:5px 10px;margin-top:16px;
     border-top:1.5px dashed var(--bc);background:rgba(255,255,255,.45);border-radius:0 0 8px 8px;
     font-weight:600;opacity:.85}
 
-  /* condition / switch expression strip, shown once at the top of the box */
-  .expr{font-family:"Cascadia Mono",Consolas,monospace;font-size:10.5px;color:#3b3a39;
+  .expr{font-family:var(--mono);font-size:10.5px;color:#3b3a39;
     background:var(--chip);border:1px solid var(--line);border-radius:5px;
-    padding:6px 11px;max-width:560px;text-align:center;word-break:break-word}
-  .hint{font-size:11px;color:var(--muted);max-width:520px;text-align:center;margin-top:7px}
+    padding:6px 11px;max-width:620px;text-align:center;word-break:break-word;white-space:pre-wrap}
+  .hint{font-size:11px;color:var(--muted);max-width:560px;text-align:center;margin-top:7px}
   .hint.warn{color:var(--warn)}
+  .ctnrcfg{margin-top:8px;max-width:620px;width:100%}
+  .ctnrcfg table{border-collapse:collapse;width:100%;background:rgba(255,255,255,.7);
+    border:1px solid var(--line);border-radius:5px}
+  .ctnrcfg td{vertical-align:top;padding:3px 9px;font-size:11px;border-bottom:1px solid #f0efee}
+  .ctnrcfg tr:last-child td{border-bottom:0}
+  .ctnrcfg td.k{color:var(--muted);font-weight:600;width:150px;min-width:150px;font-size:10.5px}
+  .ctnrcfg td.v{font-family:var(--mono);font-size:10.5px;
+    white-space:pre-wrap;overflow-wrap:anywhere}
+  .ctnrcfg tr.warnrow td.k,.ctnrcfg tr.warnrow td.v{color:var(--warn);font-weight:600}
 
   /* ---------- branches ---------- */
   .branches{display:flex;gap:26px;align-items:flex-start;padding-top:8px}
@@ -122,13 +151,14 @@
   /* ---------- outline tab ---------- */
   #outline{display:none}
   #outline pre{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
-    padding:18px 20px;overflow:auto;font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;line-height:1.6}
+    padding:18px 20px;overflow:auto;font-family:var(--mono);font-size:12px;line-height:1.6}
   body.tab-outline #designer{display:none}
   body.tab-outline #outline{display:block}
 
   @media print{
     header{position:static} .bar,.legend{display:none} main{padding:0}
     .viewport{overflow:visible} #canvas{transform:none!important}
+    .card{width:auto;max-width:none} .cfg{display:block!important}
   }
 </style>
 </head>
@@ -136,16 +166,18 @@
 
 <header>
   <h1>SIM Exports — Power Automate flow structure</h1>
-  <div class="sub">Every action from <code>03_Export_Flow_Spec.md</code> <b>v3</b>, fully expanded, showing what sits inside which scope, condition, switch and loop. Findings behind the v3 changes: <code>10_Review_v3_Findings.md</code>.</div>
+  <div class="sub">Every action from <code>03_Export_Flow_Spec.md</code> <b>v3</b>. <b>Click any action card to see exactly what to configure</b> — fields, expressions, retry policy, timeouts, run-after. Findings behind the v3 changes: <code>10_Review_v3_Findings.md</code>.</div>
 
   <div class="bar">
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" aria-selected="true" data-tab="designer">Designer view</button>
       <button class="tab" role="tab" aria-selected="false" data-tab="outline">Text outline</button>
     </div>
+    <button class="mini" id="cfgAll">Show all config</button>
     <div class="ctl"><label for="zoom">Zoom</label><input id="zoom" type="range" min="35" max="115" value="100"><span id="zval">100%</span></div>
     <button class="mini" id="collapseAll">Collapse containers</button>
     <button class="mini" id="expandAll">Expand all</button>
+    <input class="search" id="find" type="search" placeholder="Find an action…" autocomplete="off">
     <label class="ctl"><input type="checkbox" id="hl" checked> Highlight v3 changes</label>
     <button class="mini" id="copyOutline" style="display:none">Copy outline</button>
   </div>
@@ -169,6 +201,7 @@
     <span><i style="background:var(--mail)"></i>Outlook</span>
     <span style="margin-left:8px"><i style="background:var(--new)"></i>added in v3</span>
     <span><i style="background:var(--fix)"></i>fixed in v3 (was broken in v2)</span>
+    <span style="margin-left:8px;color:var(--data)">⚙ = has configuration, click to open</span>
   </div>
   <div class="stats" id="stats"></div>
 </header>
@@ -180,365 +213,1018 @@
 
 <script>
 /* =====================================================================
-   The flow, as a tree. Mirrors 03_Export_Flow_Spec.md v2 section numbers.
+   The flow, as a tree. Mirrors 03_Export_Flow_Spec.md v3 section numbers.
    k: a=action  if=condition  sw=switch  scope=scope  until=do-until
-   flag: 'new' = added in v2, 'fix' = existed in v1 but was broken
+   flag: 'new' = added in v3, 'fix' = existed in v2 but was broken
+   cfg:  [[label, value, 'warn'?], …]  — what you type into the designer.
+         'warn' marks a row that is a non-default setting people forget.
    ===================================================================== */
 
 const A = (name, type, conn, o={}) => ({k:'a', name, type, conn, ...o});
 
+/* Reused setting strings, so they stay identical everywhere. */
+const RETRY_STD  = 'Exponential · Count 4 · Interval PT10S';
+const RETRY_NONE = 'None';
+const NO_RETRY   = 'n/a — Data Operation / Variable actions have no retry policy';
+const TMO_DEF    = 'leave blank (default)';
+const SITE       = "@{parameters('simri_SiteUrl')}";
+
 const FLOW = [
   A('PowerApps (V2)','Trigger · Country, ExportType, ActionedBy, ReExport','pa',
-    {note:'ReExport is optional — §2 coalesces null to false', badges:[{t:'§1'}]}),
+    {note:'Confirm the text_N suffixes on the first run — they follow input order and getting them crossed is the most likely early mistake.',
+     badges:[{t:'§1'}],
+     cfg:[
+       ['Input 1','Text · "Country"  →  triggerBody()?[\'text\']'],
+       ['Input 2','Text · "ExportType"  →  triggerBody()?[\'text_1\']'],
+       ['Input 3','Text · "ActionedBy"  →  triggerBody()?[\'text_2\']'],
+       ['Input 4','Yes/No · "ReExport"  →  triggerBody()?[\'boolean\']'],
+       ['Trigger concurrency','OFF — do not turn on, it is irreversible','warn'],
+       ['Called from','Set(gblExport, SIMExports.Run(Trim(drpCountry.Selected.Value), "Requests", User().Email, tglReExport.Value))']
+     ]}),
 
   A('Initialize variable × 33','Variable',   'var',
-    {note:'Root level only — Power Automate rejects Initialize inside a Scope or loop',
-     badges:[{t:'§2'},{t:'varThreshold is Integer',c:'w'},{t:'+varRowsSkipped',c:'n'}],flag:'new'}),
+    {note:'Root level only — Power Automate rejects Initialize inside a Scope or loop. One action per variable; the designer has no bulk mode.',
+     badges:[{t:'§2'},{t:'varThreshold is Integer',c:'w'}],flag:'new',
+     cfg:[
+       ['Integer','varThreshold = 2000 · varChunkSize = 500 · varBatchSize = 100'],
+       ['Integer (zero)','varRowsExported · varRowsSkipped · varLogItemId · varChunkOffset · varStampOffset · varStampedCount · varDataErrors'],
+       ['Boolean','varReExport = coalesce(triggerBody()?[\'boolean\'], false) · varAsync = false · varResponded = false · varFileCreated = false'],
+       ['String (from trigger)','varCountry = trim(coalesce(triggerBody()?[\'text\'],\'\'))  ·  varActionedBy = trim(coalesce(triggerBody()?[\'text_2\'],\'\'))'],
+       ['String (generated)','varRunId = guid()  ·  varStartedUtc = utcNow()  ·  varStatus = \'Running\'  ·  varBuildResult = \'{}\''],
+       ['String (empty)','varCountryOData · varActionedByOData · varExportType · varFileName · varFileUrl · varDownloadUrl · varShareUrl · varSheetBreakdown · varMessage · varNotes · varStampUtc'],
+       ['Array','varItems = []  ·  varShaped = []  ·  varSkippedIds = []'],
+       ['Retry / Timeout',NO_RETRY],
+       ['Why Integer not Compose','A Compose holding 2000 stores the STRING "2000", and add/greater/lessOrEquals throw on a string operand','warn']
+     ]}),
 
   A('Set varExportType','Variable','var',
-    {note:'Canonicalises and validates in one expression — unrecognised value becomes empty',
-     badges:[{t:'§3'}]}),
-  A('Set varChunkSize','Variable','var',{badges:[{t:'§4'}]}),
+    {note:'Canonicalises and validates in one expression — an unrecognised value becomes empty, so §10.1 only has to test empty().',
+     badges:[{t:'§3'}],
+     cfg:[
+       ['Name','varExportType'],
+       ['Value',"if(equals(toLower(trim(coalesce(triggerBody()?['text_1'],''))),'inventory'),'Inventory',\nif(equals(toLower(trim(coalesce(triggerBody()?['text_1'],''))),'requests'),'Requests',\n''))"],
+       ['Why canonicalise','equals() and Switch cases are both case-sensitive — "requests" from the app would fail every downstream comparison'],
+       ['Retry / Timeout',NO_RETRY]
+     ]}),
+
+  A('Set varChunkSize','Variable','var',
+    {badges:[{t:'§4'}],
+     note:'Both branches are 500 today. Keep the if so they can diverge once you have real timings.',
+     cfg:[
+       ['Name','varChunkSize'],
+       ['Value',"if(equals(variables('varExportType'),'Inventory'), 500, 500)"],
+       ['Retry / Timeout',NO_RETRY]
+     ]}),
+
   A('Set varCountryOData','Variable','var',
-    {note:"replace(varCountry,'''','''''') — doubles apostrophes for OData. Côte d'Ivoire would otherwise terminate the filter string early.",
-     badges:[{t:'§4a'}]}),
+    {note:"Doubles apostrophes for OData. Without it Côte d'Ivoire terminates the filter string early and the query fails — it looks like a typo and isn't.",
+     badges:[{t:'§4a'}],
+     cfg:[
+       ['Name','varCountryOData'],
+       ['Value',"replace(variables('varCountry'),'''','''''')"],
+       ['Reading the quotes','four single quotes = a literal \' ; six = a literal \'\''],
+       ['Retry / Timeout',NO_RETRY]
+     ]}),
+
   A('Set varActionedByOData','Variable','var',
     {note:'Same escaping for the caller-supplied user. Unescaped, the authorisation filter in §10.2 is injectable — a crafted value makes the check always pass.',
-     badges:[{t:'§4a'}],flag:'new'}),
+     badges:[{t:'§4a'}],flag:'new',
+     cfg:[
+       ['Name','varActionedByOData'],
+       ['Value',"replace(variables('varActionedBy'),'''','''''')"],
+       ['Test for it',"ActionedBy = x' or field_1 ne '   must be REJECTED (08 §6 test 4)",'warn'],
+       ['Retry / Timeout',NO_RETRY]
+     ]}),
 
-  A('Compose Flow Identity','Data Operation','data',
-    {note:"Environment id from parameters('simri_FlowEnvironmentId') — v2 left <envId> as a literal placeholder",
-     badges:[{t:'§5'}],flag:'fix'}),
-  A('Compose file name','Data Operation','data',{note:'UTC timestamp, matching the log Title',badges:[{t:'§6'}]}),
-  A('Set varFileName','Variable','var',{badges:[{t:'§7'}]}),
+  A('Compose Flow Identity','Data Operation · Compose','data',
+    {note:'The run URL, written to the log so a row can be traced back to its run while history still exists (~28 days).',
+     badges:[{t:'§5'}],flag:'fix',
+     cfg:[
+       ['Inputs',"concat('https://make.powerautomate.com/environments/', parameters('simri_FlowEnvironmentId'),\n       '/flows/', workflow()?['name'], '/runs/', workflow()?['run']?['name'])"],
+       ['v2 bug','left <envId> as a literal placeholder','warn'],
+       ['Retry / Timeout',NO_RETRY]
+     ]}),
 
-  A('Compose text headers','Data Operation','data',
-    {note:'Hoisted to root level so the write loop does not rebuild it 120 times',badges:[{t:'§17'}],flag:'new'}),
-  A('Compose type map','Data Operation','data',
-    {note:'Sheet, table, required fields and blankHeaders per RequestType',badges:[{t:'§17'}],flag:'new'}),
+  A('Compose file name','Data Operation · Compose','data',
+    {note:'UTC timestamp, matching the log Title — so a file and its log row always carry the same clock.',
+     badges:[{t:'§6'}],
+     cfg:[
+       ['Inputs',"concat(formatDateTime(variables('varStartedUtc'),'yyyy-MM-dd_HH-mm-ss'),'_',\n       replace(variables('varCountry'),' ','-'),'_',\n       variables('varExportType'),'_',\n       substring(variables('varRunId'),0,8),'.xlsx')"],
+       ['Produces','2026-08-15_14-22-05_Romania_Requests_a7f3c9e1.xlsx'],
+       ['substring is safe here','guid() is always 36 characters'],
+       ['Retry / Timeout',NO_RETRY]
+     ]}),
+
+  A('Set varFileName','Variable','var',
+    {badges:[{t:'§7'}],
+     cfg:[['Name','varFileName'],['Value',"outputs('Compose_file_name')"],['Retry / Timeout',NO_RETRY]]}),
+
+  A('Compose text headers','Data Operation · Compose','data',
+    {note:'Hoisted to root level so the write loop does not rebuild it 120 times.',badges:[{t:'§17'}],flag:'new',
+     cfg:[
+       ['Inputs','["PhoneNr","ICCID","Current ICCID","New ICCID","StartDate","EffectiveDate","GDID","simInventoryID"]'],
+       ['Used by','Compose requests payload → assertTemplate() enforces "@" number format on these columns'],
+       ['Retry / Timeout',NO_RETRY]
+     ]}),
+
+  A('Compose type map','Data Operation · Compose','data',
+    {note:'type values MUST equal the RequestType choice values exactly; sheet and table must match the handover template.',
+     badges:[{t:'§17'},{t:'blocked by O1',c:'w'}],flag:'new',
+     cfg:[
+       ['Inputs','[\n {"type":"New SIM","sheet":"New SIM","table":"tbl_NewSIM",\n  "required":["gdid","requestedFor","provider","deliveryAddress"],\n  "blankHeaders":["PhoneNr","ICCID","StartDate"]},\n {"type":"Terminate","sheet":"Terminate","table":"tbl_Terminate",\n  "required":["gdid","requestedFor","provider","phoneNr"],"blankHeaders":[]},\n {"type":"Swap","sheet":"Swap","table":"tbl_Swap",\n  "required":["gdid","requestedFor","provider","iccid","newSimType"],"blankHeaders":[]},\n {"type":"Transfer","sheet":"Transfer","table":"tbl_Transfer",\n  "required":["gdid","requestedFor","provider","phoneNr","transferdTo"],"blankHeaders":[]},\n {"type":"Change plan","sheet":"Change plan","table":"tbl_ChangePlan",\n  "required":["gdid","requestedFor","provider","phoneNr","newPlan"],"blankHeaders":[]}\n]'],
+       ['blankHeaders','forces those columns empty on that sheet only — New SIM\'s PhoneNr/ICCID/StartDate are the provider\'s to fill'],
+       ['Retry / Timeout',NO_RETRY]
+     ]}),
 
   A('Create log item','SharePoint · Create item','sp',
-    {note:'LOG 1 — Status: Running. Check the first run for ID vs Id casing.',badges:[{t:'§8'},{t:'retry Exp/4'}]}),
+    {note:'LOG 1. Runs BEFORE the authorisation check on purpose — a rejected attempt must leave a record, and this row IS the concurrency claim §10.2b compares against.',
+     badges:[{t:'§8'},{t:'02 · LOG 1',c:'n'}],
+     cfg:[
+       ['Site Address',SITE],
+       ['List Name','SIM Export Log'],
+       ['Status','Running'],
+       ['All 21 fields','02_Export_Log.md → LOG 1 — copy the table','warn'],
+       ['Settings → Retry Policy',RETRY_STD],
+       ['Settings → Timeout',TMO_DEF],
+       ['Run after','default (has succeeded)']
+     ]}),
+
   A('Set varLogItemId','Variable','var',
-    {note:'run after: has succeeded only — stays 0 if logging failed, and every log write below is guarded on it',badges:[{t:'§9'}]}),
+    {note:'Check the casing on the first run — some connector versions return Id, not ID. Wrong casing means varLogItemId stays 0, every log write is skipped by its own guard, and the export works perfectly while logging nothing.',
+     badges:[{t:'§9'}],
+     cfg:[
+       ['Name','varLogItemId'],
+       ['Value',"body('Create_log_item')?['ID']"],
+       ['Run after','has succeeded ONLY — must be explicit','warn'],
+       ['Why','if Create log item failed this is skipped, varLogItemId stays 0, and every Update is guarded on > 0'],
+       ['Retry / Timeout',NO_RETRY]
+     ]}),
 
   {k:'scope', name:'Scope - Main', sec:'§10–§14',
    run:'run after Set varLogItemId: succeeded, failed, skipped',
+   cfg:[['Run after','has succeeded · has failed · is skipped','warn'],
+        ['Why all three','a logging hiccup must never block an export'],
+        ['Retry / Timeout','n/a — a Scope has no retry policy']],
    children:[
 
      {k:'if', name:'Validate inputs', sec:'§10.1',
-      expr:"or(empty(varCountry), empty(varActionedBy), empty(varExportType))",
-      note:'The §10.0 rejection shape: status, message, log, respond, mark responded, terminate — in that order',
+      expr:"or(empty(variables('varCountry')),\n   empty(variables('varActionedBy')),\n   empty(variables('varExportType')))",
+      note:'empty() does not catch whitespace — empty(\' \') is false. §2 trims before storing, so a country of one space is genuinely empty here.',
+      cfg:[['Type','Control · Condition'],
+           ['Expression mode','use "Edit in advanced mode" and paste the whole or(...)'],
+           ['Retry / Timeout','n/a — a Condition has no retry policy']],
       yes:[
-        A('Set varStatus invalid','Variable','var',{note:'Invalid'}),
-        A('Set varMessage invalid','Variable','var',{note:'Names exactly what was missing'}),
-        {k:'if', name:'Has log item invalid', expr:'greater(varLogItemId, 0)',
+        A('Set varStatus invalid','Variable','var',
+          {cfg:[['Name','varStatus'],['Value','Invalid'],['Retry / Timeout',NO_RETRY]]}),
+        A('Set varMessage invalid','Variable','var',
+          {note:'Names exactly what was missing, so the app can show it verbatim.',
+           cfg:[['Name','varMessage'],
+                ['Value',"concat('Cannot export: ',\n  if(empty(variables('varCountry')),'no country was supplied. ',''),\n  if(empty(variables('varActionedBy')),'no user was supplied. ',''),\n  if(empty(variables('varExportType')),concat('export type \"',trim(coalesce(triggerBody()?['text_1'],'(blank)')),'\" is not Inventory or Requests. '),''))"],
+                ['Retry / Timeout',NO_RETRY]]}),
+        {k:'if', name:'Has log item invalid', expr:"greater(variables('varLogItemId'), 0)",
+         cfg:[['Why','Update item against ID 0 errors. Every log write in the flow carries this guard.']],
          yes:[A('Update log item invalid','SharePoint · Update item','sp',
-                {note:'Without this the log sits on Running forever and the Stuck-runs view fills with typos'})],
+                {note:'Without this the log sits on Running forever and the Stuck-runs view fills with typos.',
+                 cfg:[['Site Address',SITE],['List Name','SIM Export Log'],
+                      ['Id',"@{variables('varLogItemId')}"],
+                      ['Status','Invalid'],
+                      ['All 21 fields','02_Export_Log.md → LOG 1a','warn'],
+                      ['Settings → Retry Policy',RETRY_STD],
+                      ['Settings → Timeout',TMO_DEF]]})],
          no:[]},
-        A('Respond invalid','Respond to a PowerApp','pa',{note:'Respond BEFORE terminating, or the app waits for its own timeout'}),
-        A('Set varResponded invalid','Variable','var'),
+        A('Respond invalid','Respond to a PowerApp','pa',
+          {note:'Respond BEFORE terminating, or the app waits for its own 120s timeout and the user sees nothing at all.',
+           cfg:[['status',"@{variables('varStatus')}  →  Invalid"],
+                ['message',"@{variables('varMessage')}"],
+                ['fileUrl',"@{variables('varDownloadUrl')}  →  empty"],
+                ['shareUrl',"@{variables('varShareUrl')}  →  empty"],
+                ['rows',"variables('varRowsExported')  — bare, NOT @{…}",'warn'],
+                ['Why bare','@{…} interpolation coerces the number to text']]}),
+        A('Set varResponded invalid','Variable','var',
+          {cfg:[['Name','varResponded'],['Value','true'],['Why','exactly one Respond may execute per run; the catch scope checks this']]}),
         A('Terminate invalid','Control · Terminate','ctrl',
-          {note:'Status Cancelled, not Failed — a user who picked no country is not a flow failure',
-           badges:[{t:'Cancelled',c:'g'}]})
+          {note:'Status Cancelled, not Failed — a user who picked no country is not a flow failure, and the run-history failure count is something you will want to trust.',
+           badges:[{t:'Cancelled',c:'g'}],
+           cfg:[['Status','Cancelled'],
+                ['Run code','leave blank'],['Run message','leave blank'],
+                ['Consequence','the run ENDS. §14.1 never fires and Scope - Catch does NOT run after a Terminate','warn']]})
       ],
       no:[]},
 
      {k:'if', name:'Check authorisation', sec:'§10.2',
-      expr:"length(Check authorisation value) == 0",
-      note:'Get items on the SIMRI Country Matrix (field_1 = country, field_13/14/15 = local admins, Active eq 1). PARENTHESISE the three admin clauses or any admin passes for every country. Not an access control — ActionedBy is caller-supplied.',
+      expr:"equals(length(body('Check_authorisation')?['value']), 0)",
+      note:'Get items on the SIMRI Country Matrix runs first, then this Condition tests the result. Not an access control — ActionedBy is caller-supplied. Raises the bar, gives an audit trail.',
+      cfg:[['Preceded by',"▤ Check authorisation — SharePoint Get items (see its own card)"],
+           ['Type','Control · Condition']],
       yes:[
         A('Set varStatus unauthorised','Variable','var',
-          {note:'Unauthorised — its own log status, so the security question is a view filter rather than a text search',flag:'new'}),
-        A('Set varMessage unauthorised','Variable','var'),
-        {k:'if', name:'Has log item unauthorised', expr:'greater(varLogItemId, 0)',
+          {note:'Its own status, so the security question is a view filter rather than a text search.',flag:'new',
+           cfg:[['Name','varStatus'],['Value','Unauthorised'],
+                ['Choice column','must exist on the log list — SharePoint rejects an unknown value','warn']]}),
+        A('Set varMessage unauthorised','Variable','var',
+          {cfg:[['Name','varMessage'],
+                ['Value',"concat('You are not registered as a local admin for ', variables('varCountry'), '. If this is wrong, ask a Super Admin to add you to that country''s row in the SIMRI Country Matrix.')"],
+                ['Note',"country''s — a literal apostrophe is doubled, or the expression will not save",'warn']]}),
+        {k:'if', name:'Has log item unauthorised', expr:"greater(variables('varLogItemId'), 0)",
          yes:[A('Update log item unauthorised','SharePoint · Update item','sp',
-                {note:'Records BOTH the email and the country attempted'})], no:[]},
-        A('Respond unauthorised','Respond to a PowerApp','pa'),
-        A('Set varResponded unauthorised','Variable','var'),
-        A('Terminate unauthorised','Control · Terminate','ctrl',{badges:[{t:'Cancelled',c:'g'}]})
+                {note:'Records BOTH the email and the country attempted — that pair is the whole point of the row.',
+                 cfg:[['Site Address',SITE],['List Name','SIM Export Log'],
+                      ['Id',"@{variables('varLogItemId')}"],
+                      ['Status','Unauthorised'],
+                      ['Title',"UNAUTHORISED · …UTC · @{variables('varCountry')} · @{variables('varActionedBy')}"],
+                      ['All 21 fields','02_Export_Log.md → LOG 1b','warn'],
+                      ['Settings → Retry Policy',RETRY_STD]]})], no:[]},
+        A('Respond unauthorised','Respond to a PowerApp','pa',
+          {cfg:[['status',"@{variables('varStatus')}  →  Unauthorised"],
+                ['message',"@{variables('varMessage')}"],
+                ['fileUrl / shareUrl','empty'],['rows',"variables('varRowsExported')  →  0"]]}),
+        A('Set varResponded unauthorised','Variable','var',
+          {cfg:[['Name','varResponded'],['Value','true']]}),
+        A('Terminate unauthorised','Control · Terminate','ctrl',
+          {badges:[{t:'Cancelled',c:'g'}],cfg:[['Status','Cancelled']]})
       ],
       no:[]},
+
+     A('Check authorisation','SharePoint · Get items','sp',
+       {note:'Sits immediately BEFORE the Condition above. field_1 is CountryName; field_13/14/15 are Local Admin 1, 2 and Group — none of those internal names is guessable from the display name.',
+        badges:[{t:'§10.2'},{t:'see 11',c:'n'}],flag:'new',
+        cfg:[
+          ['Site Address',SITE],
+          ['List Name',"SIMRI Country Matrix · @{parameters('simri_CountryMatrixId')}"],
+          ['Filter Query',"field_1 eq '@{variables('varCountryOData')}'\nand Active eq 1\nand (field_13 eq '@{variables('varActionedByOData')}'\n  or field_14 eq '@{variables('varActionedByOData')}'\n  or field_15 eq '@{variables('varActionedByOData')}')"],
+          ['PARENTHESES','without them any Local Admin 2 passes for EVERY country','warn'],
+          ['Top Count','1'],
+          ['Limit Columns by View','leave blank'],
+          ['Settings → Pagination','Off'],
+          ['Settings → Retry Policy',RETRY_STD],
+          ['Settings → Timeout',TMO_DEF],
+          ['field_15 caveat','text column — matches an exact address, NOT group membership']
+        ]}),
 
      {k:'if', name:'Is requests export claim', sec:'§10.2b',
       expr:"equals(variables('varExportType'),'Requests')",
       note:'Inventory exports do not claim — two of them produce two identical read-only files, which is harmless. Two Requests exports both read the same unstamped rows and both hand them over.',
       noEmpty:'nothing — inventory falls through to §10.3',
+      cfg:[['Type','Control · Condition'],['Scope','Requests only']],
       yes:[
         A('Claim concurrency','SharePoint · Get items','sp',
-          {note:"Log list: Status eq 'Running' and ExportType eq 'Requests' and Country eq … and ID lt varLogItemId and Created gt now-30min. Top 1, Order By ID desc. NO Limit Columns by View — the message reads Created and ActionedBy_email off the result.",
-           badges:[{t:'§10.2b'}]}),
+          {note:'The soft claim. Reversible and visible in the list, unlike trigger concurrency which is irreversible.',
+           badges:[{t:'§10.2b'}],flag:'new',
+           cfg:[
+             ['Site Address',SITE],
+             ['List Name','SIM Export Log'],
+             ['Filter Query',"Status eq 'Running' and ExportType eq 'Requests'\nand Country eq '@{variables('varCountryOData')}'\nand ID lt @{variables('varLogItemId')}\nand Created gt '@{addMinutes(utcNow(),-30)}'"],
+             ['ID lt varLogItemId','without it every Requests export rejects ITSELF — this flow\'s own log item is already Running','warn'],
+             ['Top Count','1'],
+             ['Order By','ID desc'],
+             ['Limit Columns by View','MUST be blank — the message reads Created and ActionedBy_email off the result','warn'],
+             ['Settings → Pagination','Off'],
+             ['Settings → Retry Policy',RETRY_STD],
+             ['Verify on run 1',"the Created gt '<ISO>' literal — a filter that matches nothing looks identical to 'nothing is running'"]
+           ]}),
         {k:'if', name:'Claim rejected', expr:"greater(length(body('Claim_concurrency')?['value']), 0)",
          flag:'fix',
-         note:'ID lt varLogItemId is the whole trick: this flow’s OWN log item is already Running by now, so without it every Requests export rejects itself. With it, a run only defers to an export that started before it did — one winner, one clear message.',
+         note:'With ID lt varLogItemId, a run only defers to an export that started before it did — one winner, one clear message, rather than two rejections or two handovers.',
          noEmpty:'nothing — no earlier export is running, so this one continues to §10.3',
+         cfg:[['Type','Control · Condition'],['first() is safe','the branch only runs when the array is non-empty']],
          yes:[
            A('Set varStatus claim rejected','Variable','var',
-             {note:"'Blocked' — its own log status. Filed as Invalid it would be indistinguishable from a user who picked no country, and 'two admins are working the same country' is a process signal worth seeing.",flag:'new'}),
-           A('Set varMessage claim rejected','Variable','var',{note:'Names the time and the admin already running it'}),
-           {k:'if', name:'Has log item claim', expr:'greater(varLogItemId, 0)',
-            yes:[A('Update log item claim','SharePoint · Update item','sp')], no:[]},
-           A('Respond claim rejected','Respond to a PowerApp','pa'),
-           A('Set varResponded claim','Variable','var'),
+             {note:"Its own status. Filed as Invalid it would be indistinguishable from a user who picked no country, and 'two admins are working the same country' is a process signal worth seeing.",flag:'new',
+              cfg:[['Name','varStatus'],['Value','Blocked'],
+                   ['Choice column','must exist on the log list — 8 values total','warn']]}),
+           A('Set varMessage claim rejected','Variable','var',
+             {cfg:[['Name','varMessage'],
+                   ['Value',"concat('An export for ', variables('varCountry'), ' is already running — started at ',\n       formatDateTime(first(body('Claim_concurrency')?['value'])?['Created'],'HH:mm'),\n       ' UTC by ', first(body('Claim_concurrency')?['value'])?['ActionedBy_email'],\n       '. Wait for it to finish, then try again.')"]]}),
+           {k:'if', name:'Has log item claim', expr:"greater(variables('varLogItemId'), 0)",
+            yes:[A('Update log item claim','SharePoint · Update item','sp',
+                   {note:'Notes names the run it deferred to — RunId, log item ID, who started it. That is what makes a Blocked row useful six weeks later.',
+                    cfg:[['Site Address',SITE],['List Name','SIM Export Log'],
+                         ['Id',"@{variables('varLogItemId')}"],
+                         ['Status','Blocked'],
+                         ['All 21 fields','02_Export_Log.md → LOG 1c','warn'],
+                         ['Settings → Retry Policy',RETRY_STD]]})], no:[]},
+           A('Respond claim rejected','Respond to a PowerApp','pa',
+             {cfg:[['status',"@{variables('varStatus')}  →  Blocked"],
+                   ['message',"@{variables('varMessage')}"],
+                   ['fileUrl / shareUrl','empty'],['rows',"variables('varRowsExported')  →  0"],
+                   ['App handling','Notify · Warning']]}),
+           A('Set varResponded claim','Variable','var',{cfg:[['Name','varResponded'],['Value','true']]}),
            A('Terminate claim rejected','Control · Terminate','ctrl',
              {note:'THE RUN ENDS HERE. Nothing after it executes, and Scope - Catch does not run after a Terminate — which is why the log update and the Respond both come first.',
-              badges:[{t:'Cancelled',c:'g'}]})
+              badges:[{t:'Cancelled',c:'g'}],cfg:[['Status','Cancelled']]})
          ]}
       ],
       no:[]},
 
-     A('Compose inventory filter','Data Operation','data',{badges:[{t:'§10.3'}]}),
-     A('Compose requests filter','Data Operation','data',
-       {note:"Adds RequestType ne 'Delegate' and ExportedOn eq null. Verify how CAML Neq treats a blank RequestType — it typically excludes nulls.",
-        badges:[{t:'§10.3'}]}),
+     A('Compose inventory filter','Data Operation · Compose','data',
+       {badges:[{t:'§10.3'}],
+        cfg:[['Inputs',"concat('SIM_Country eq ''', variables('varCountryOData'), '''')"],
+             ['Produces',"SIM_Country eq 'Romania'"],
+             ['Retry / Timeout',NO_RETRY]]}),
+
+     A('Compose requests filter','Data Operation · Compose','data',
+       {note:"RequestType ne 'Delegate' and ExportedOn eq null. Verify how CAML Neq treats a blank RequestType — it typically excludes nulls, which would make a typeless request vanish rather than be reported.",
+        badges:[{t:'§10.3'}],
+        cfg:[
+          ['Inputs',"concat('CountryName eq ''', variables('varCountryOData'),\n       ''' and OrderStatus eq ''Approved'' and RequestType ne ''Delegate''',\n       if(variables('varReExport'), '', ' and ExportedOn eq null'))"],
+          ['Leading clause','CountryName — must be indexed and narrow below 5,000 rows','warn'],
+          ["ne 'Delegate'",'without it the probe counts rows the script will not write, and the log computes No data on a run that made a file'],
+          ['ExportedOn eq null','the double-handover guard; dropped when ReExport is on'],
+          ["'Approved'",'assumes that exact choice value — 00 open item O2'],
+          ['Retry / Timeout',NO_RETRY]
+        ]}),
 
      {k:'sw', name:'Switch source', sec:'§10.4', expr:"variables('varExportType')",
-      note:'Top Count add(varThreshold,1) · Pagination OFF · Limit Columns by View — and the view MUST contain ID, or requestId is null and nothing can be stamped',
+      note:'The probe. Top Count threshold+1 answers "is this big?" AND returns the whole dataset when it is not — below the threshold this is the only read the flow performs.',
+      cfg:[['On',"variables('varExportType')"],['Cases','Inventory · Requests'],['Default case','none — leave empty']],
       cases:[
         {label:'Inventory', children:[
-          A('Get inventory probe','SharePoint · Get items','sp'),
-          A('Set varItems inventory','Variable','var')]},
+          A('Get inventory probe','SharePoint · Get items','sp',
+            {cfg:[['Site Address',SITE],
+                  ['List Name',"Global SIM Inventory · @{parameters('simri_InventoryListId')}"],
+                  ['Filter Query',"@{outputs('Compose_inventory_filter')}"],
+                  ['Limit Columns by View','FlowExport_Inventory'],
+                  ['View must contain ID','or item()?[\'ID\'] is null everywhere downstream','warn'],
+                  ['Top Count',"@{add(variables('varThreshold'),1)}"],
+                  ['Order By','leave blank'],
+                  ['Settings → Pagination','Off'],
+                  ['Settings → Retry Policy',RETRY_STD],
+                  ['Settings → Timeout',TMO_DEF]]}),
+          A('Set varItems inventory','Variable','var',
+            {cfg:[['Name','varItems'],
+                  ['Value',"@{body('Get_inventory_probe')?['value']}"],
+                  ['Same variable, different action','both Switch cases write varItems; only ACTION names must be unique']]})]},
         {label:'Requests', children:[
-          A('Get requests probe','SharePoint · Get items','sp'),
-          A('Set varItems requests','Variable','var')]}
+          A('Get requests probe','SharePoint · Get items','sp',
+            {cfg:[['Site Address',SITE],
+                  ['List Name',"Global Order List · @{parameters('simri_OrderListId')}"],
+                  ['Filter Query',"@{outputs('Compose_requests_filter')}"],
+                  ['Limit Columns by View','FlowExport_Requests'],
+                  ['View must contain ID','or RequestID is blank in the workbook and nothing can be stamped','warn'],
+                  ['Top Count',"@{add(variables('varThreshold'),1)}"],
+                  ['Settings → Pagination','Off'],
+                  ['Settings → Retry Policy',RETRY_STD]]}),
+          A('Set varItems requests','Variable','var',
+            {cfg:[['Name','varItems'],['Value',"@{body('Get_requests_probe')?['value']}"]]})]}
       ]},
 
-     A('Compose probe count','Data Operation','data',{note:"length(variables('varItems'))",badges:[{t:'§10.5'}]}),
+     A('Compose probe count','Data Operation · Compose','data',
+       {badges:[{t:'§10.5'}],
+        cfg:[['Inputs',"length(variables('varItems'))"],['Retry / Timeout',NO_RETRY]]}),
 
-     {k:'if', name:'Has data', sec:'§10.6', expr:'greater(Compose probe count, 0)',
+     {k:'if', name:'Has data', sec:'§10.6', expr:"greater(outputs('Compose_probe_count'), 0)",
+      cfg:[['Type','Control · Condition']],
       no:[
-        {k:'if', name:'Is requests export', expr:"equals(varExportType,'Requests')",
+        {k:'if', name:'Is requests export', expr:"equals(variables('varExportType'),'Requests')",
+         cfg:[['Why','"nothing to export" has three distinct causes for Requests and the admin needs to know which']],
          yes:[
-           A('Get requests diagnostic','SharePoint · Get items','sp',{note:'Approved only, no other clauses. Informational and capped at 5000 — it phrases a message, it does not drive a decision.'}),
-           A('Filter array delegate','Data Operation','data'),
-           A('Filter array exported','Data Operation','data'),
+           A('Get requests diagnostic','SharePoint · Get items','sp',
+             {note:'Informational only — it phrases a message, it does not drive a decision. Capped at 5000, which is fine for a sentence and would not be for a filter.',
+              cfg:[['Site Address',SITE],
+                   ['List Name',"Global Order List · @{parameters('simri_OrderListId')}"],
+                   ['Filter Query',"CountryName eq '@{variables('varCountryOData')}' and OrderStatus eq 'Approved'"],
+                   ['Note','Approved only — no Delegate or ExportedOn clause, that is the point'],
+                   ['Limit Columns by View','FlowExport_Diagnostic  (ID, RequestType, ExportedOn)'],
+                   ['Top Count','5000'],
+                   ['Settings → Pagination','Off'],
+                   ['Settings → Retry Policy',RETRY_STD]]}),
+           A('Filter array delegate','Data Operation · Filter array','data',
+             {cfg:[['From',"body('Get_requests_diagnostic')?['value']"],
+                   ['Condition (advanced)',"@equals(item()?['RequestType']?['Value'],'Delegate')"],
+                   ["?['Value']",'a Choice column is an object; without it you compare an object to a string'],
+                   ['Retry / Timeout',NO_RETRY]]}),
+           A('Filter array exported','Data Operation · Filter array','data',
+             {cfg:[['From',"body('Get_requests_diagnostic')?['value']"],
+                   ['Condition (advanced)',"@not(equals(item()?['ExportedOn'],null))"],
+                   ['Retry / Timeout',NO_RETRY]]}),
            A('Set varMessage requests none','Variable','var',
-             {note:'Distinguishes none approved / all already sent / all Delegate / a mix'})],
-         no:[A('Set varMessage inventory none','Variable','var')]},
-        A('Set varStatus no data','Variable','var',{note:'No data is a status, not an error'}),
-        {k:'if', name:'Has log item no data', expr:'greater(varLogItemId, 0)',
-         yes:[A('Update log item no data','SharePoint · Update item','sp',{note:'Delivery: None'})], no:[]},
-        A('Respond no data','Respond to a PowerApp','pa',{note:'No file is created'}),
-        A('Set varResponded no data','Variable','var'),
+             {note:'Distinguishes none approved / all already sent / all Delegate / a mix.',
+              cfg:[['Name','varMessage'],
+                   ['Value',"if(equals(length(body('Get_requests_diagnostic')?['value']),0),\n   concat('No approved requests for ', variables('varCountry'), '.'),\nif(equals(length(body('Filter_array_exported')),length(body('Get_requests_diagnostic')?['value'])),\n   concat('All ', length(body('Get_requests_diagnostic')?['value']), ' approved requests for ', variables('varCountry'), ' were already sent to the provider. Use Re-export if the provider needs the file again.'),\nif(equals(length(body('Filter_array_delegate')),length(body('Get_requests_diagnostic')?['value'])),\n   concat(length(body('Filter_array_delegate')), ' approved requests for ', variables('varCountry'), ', none require provider action.'),\n   concat('Nothing new to send for ', variables('varCountry'), ' — ', length(body('Filter_array_exported')), ' already sent, ', length(body('Filter_array_delegate')), ' are Delegate.'))))"]]})],
+         no:[A('Set varMessage inventory none','Variable','var',
+               {cfg:[['Name','varMessage'],
+                     ['Value',"concat('No SIMs found for ', variables('varCountry'), '.')"]]})]},
+        A('Set varStatus no data','Variable','var',
+          {note:'No data is a status, not an error — filing it as Failed means the failure view fills with non-problems and people stop reading it.',
+           cfg:[['Name','varStatus'],['Value','No data']]}),
+        {k:'if', name:'Has log item no data', expr:"greater(variables('varLogItemId'), 0)",
+         yes:[A('Update log item no data','SharePoint · Update item','sp',
+                {cfg:[['Site Address',SITE],['List Name','SIM Export Log'],
+                      ['Id',"@{variables('varLogItemId')}"],
+                      ['Status','No data'],['Delivery','None'],
+                      ['Notes',"@{variables('varMessage')}"],
+                      ['All 21 fields','02_Export_Log.md → LOG 1d','warn'],
+                      ['Settings → Retry Policy',RETRY_STD]]})], no:[]},
+        A('Respond no data','Respond to a PowerApp','pa',
+          {note:'No file is created. An empty workbook forwarded to a provider is worse than nothing.',
+           cfg:[['status',"@{variables('varStatus')}  →  No data"],
+                ['message',"@{variables('varMessage')}"],
+                ['fileUrl / shareUrl','empty'],['rows','0'],
+                ['App handling','Notify · Warning']]}),
+        A('Set varResponded no data','Variable','var',{cfg:[['Name','varResponded'],['Value','true']]}),
         A('Terminate no data','Control · Terminate','ctrl',
-          {note:'Succeeded — "no approved requests" is the process working',badges:[{t:'Succeeded',c:'g'}],flag:'new'})
+          {note:'Succeeded — "no approved requests" is the process working correctly.',
+           badges:[{t:'Succeeded',c:'g'}],flag:'new',
+           cfg:[['Status','Succeeded'],['Not Cancelled','this is a normal outcome, not an abort']]})
       ],
       yes:[
 
-        {k:'if', name:'Fits sync', sec:'§11.1', expr:'lessOrEquals(Compose probe count, varThreshold)',
+        {k:'if', name:'Fits sync', sec:'§11.1', expr:"lessOrEquals(outputs('Compose_probe_count'), variables('varThreshold'))",
+         cfg:[['Type','Control · Condition'],
+              ['Threshold','varThreshold = 2000 — tune from 02\'s DurationSeconds, not from a guess']],
          yes:[],
          yesEmpty:'nothing to do — varItems already holds every row from the probe',
          no:[
-           A('Set varAsync','Variable','var',{note:'true'}),
-           A('Set varMessage queued','Variable','var'),
-           A('Set varStatus queued','Variable','var'),
-           {k:'if', name:'Has log item queued', expr:'greater(varLogItemId, 0)',
+           A('Set varAsync','Variable','var',{cfg:[['Name','varAsync'],['Value','true']]}),
+           A('Set varMessage queued','Variable','var',
+             {cfg:[['Name','varMessage'],
+                   ['Value',"concat('Export of ', outputs('Compose_probe_count'), '+ rows started. You will receive an email when it is ready.')"],
+                   ['The + is deliberate','the probe stopped at threshold+1, so it knows the total is AT LEAST that']]}),
+           A('Set varStatus queued','Variable','var',
+             {cfg:[['Name','varStatus'],['Value','Queued'],
+                   ['Choice column','Queued must exist on the log list','warn']]}),
+           {k:'if', name:'Has log item queued', expr:"greater(variables('varLogItemId'), 0)",
             yes:[A('Update log item queued','SharePoint · Update item','sp',
-                   {note:'Status Queued — which must exist in the log’s choice column, or this write fails'})], no:[]},
+                   {note:'The only mid-run log write that is not terminal — Finished stays EMPTY and DurationSeconds stays 0, which is what makes the Stuck-runs view work.',
+                    cfg:[['Site Address',SITE],['List Name','SIM Export Log'],
+                         ['Id',"@{variables('varLogItemId')}"],
+                         ['Status','Queued'],['Delivery','Emailed'],
+                         ['Finished','LEAVE EMPTY — the run is still going','warn'],
+                         ['DurationSeconds','0'],
+                         ['All 21 fields','02_Export_Log.md → LOG 1e','warn'],
+                         ['Settings → Retry Policy',RETRY_STD]]})], no:[]},
            A('Respond queued','Respond to a PowerApp','pa',
-             {note:'THE APP UNBLOCKS HERE — the flow keeps running',badges:[{t:'~4s',c:'g'}]}),
-           A('Set varResponded queued','Variable','var'),
+             {note:'THE APP UNBLOCKS HERE — the flow keeps running. That is the whole trick behind the async path.',
+              badges:[{t:'~4s',c:'g'}],
+              cfg:[['status',"@{variables('varStatus')}  →  Queued"],
+                   ['message',"@{variables('varMessage')}"],
+                   ['fileUrl / shareUrl','empty — no file exists yet'],
+                   ['rows','0 — nothing written yet'],
+                   ['App handling','Notify · Information'],
+                   ['No Terminate here','the run continues to Switch source full','warn']]}),
+           A('Set varResponded queued','Variable','var',{cfg:[['Name','varResponded'],['Value','true']]}),
            {k:'sw', name:'Switch source full', expr:"variables('varExportType')",
-            note:'Top Count 5000 · Pagination ON · threshold 100000. Two DIFFERENTLY NAMED Set actions — action names are globally unique, so two Switch cases cannot both hold "Set varItems full".',
+            note:'Re-reads the WHOLE dataset. Same filters as the probe; the only difference is paging — and that difference is why the probe could answer "is this big?" in one cheap call.',
+            cfg:[['On',"variables('varExportType')"],['Cases','Inventory · Requests'],['Default case','none']],
             cases:[
-              {label:'Inventory',children:[A('Get inventory full','SharePoint · Get items','sp'),
-                                           A('Set varItems inventory full','Variable','var',{flag:'fix'})]},
-              {label:'Requests', children:[A('Get requests full','SharePoint · Get items','sp'),
-                                           A('Set varItems requests full','Variable','var',{flag:'fix'})]}
+              {label:'Inventory',children:[
+                A('Get inventory full','SharePoint · Get items','sp',
+                  {flag:'new',
+                   cfg:[['Site Address',SITE],
+                        ['List Name',"Global SIM Inventory · @{parameters('simri_InventoryListId')}"],
+                        ['Filter Query',"@{outputs('Compose_inventory_filter')}"],
+                        ['Limit Columns by View','FlowExport_Inventory'],
+                        ['Top Count','5000   ← page size when pagination is on'],
+                        ['Order By','leave blank'],
+                        ['Settings → Pagination','ON · Threshold 100000','warn'],
+                        ['Settings → Retry Policy',RETRY_STD],
+                        ['Settings → Timeout',TMO_DEF],
+                        ['Threshold headroom','60,000-row ceiling vs 100,000 threshold. Above it the connector stops SILENTLY and §11.6 will not catch it','warn']]}),
+                A('Set varItems inventory full','Variable','var',
+                  {flag:'fix',
+                   cfg:[['Name','varItems'],
+                        ['Value',"@{body('Get_inventory_full')?['value']}"],
+                        ['Why the odd name','two Switch cases cannot both hold an action called "Set varItems full" — names are globally unique','warn']]})]},
+              {label:'Requests', children:[
+                A('Get requests full','SharePoint · Get items','sp',
+                  {flag:'new',
+                   cfg:[['Site Address',SITE],
+                        ['List Name',"Global Order List · @{parameters('simri_OrderListId')}"],
+                        ['Filter Query',"@{outputs('Compose_requests_filter')}"],
+                        ['Limit Columns by View','FlowExport_Requests'],
+                        ['Top Count','5000'],
+                        ['Settings → Pagination','ON · Threshold 100000','warn'],
+                        ['Settings → Retry Policy',RETRY_STD]]}),
+                A('Set varItems requests full','Variable','var',
+                  {flag:'fix',
+                   cfg:[['Name','varItems'],['Value',"@{body('Get_requests_full')?['value']}"]]})]}
             ]}
          ]},
 
-        A('Compose template path','Data Operation','data',
-          {note:"From environment variables, not hard-coded paths",badges:[{t:'§11.2'}]}),
-        A('Get template','SharePoint · Get file content using path','sp',{badges:[{t:'§11.3'}]}),
-        A('Create export file','SharePoint · Create file','sp',{note:'Folder from simri_ExportLibrary'}),
+        A('Compose template path','Data Operation · Compose','data',
+          {badges:[{t:'§11.2'}],
+           cfg:[['Inputs',"if(equals(variables('varExportType'),'Inventory'),\n   parameters('simri_InventoryTemplate'),\n   parameters('simri_HandoverTemplate'))"],
+                ['From environment variables','not hard-coded paths — the solution has to promote DEV → UAT → PROD'],
+                ['Retry / Timeout',NO_RETRY]]}),
+
+        A('Get template','SharePoint · Get file content using path','sp',
+          {badges:[{t:'§11.3'}],
+           cfg:[['Site Address',SITE],
+                ['File Path',"@{outputs('Compose_template_path')}"],
+                ['Infer Content Type','Yes (default)'],
+                ['Settings → Retry Policy',RETRY_STD],
+                ['Settings → Timeout',TMO_DEF],
+                ['If it fails','the message names the path — that is deliberate, a generic connector error is useless here']]}),
+
+        A('Create export file','SharePoint · Create file','sp',
+          {cfg:[['Site Address',SITE],
+                ['Folder Path',"@{parameters('simri_ExportLibrary')}"],
+                ['File Name',"@{variables('varFileName')}"],
+                ['File Content',"@{body('Get_template')}"],
+                ['Settings → Retry Policy',RETRY_STD],
+                ['Retry is safe here','the filename carries the RunId, so a retry overwrites the same file rather than making a second one'],
+                ['Outputs you need',"?['{Link}']  absolute URL  ·  ?['{Path}']  server-relative  ·  ?['{Identifier}']  for the Excel actions"]]}),
+
         A('Set varFileCreated','Variable','var',
-          {note:'The honest signal for the catch scope — v1 guarded on varFileName, set long before any file existed'}),
+          {note:'The honest signal for the catch scope — v1 guarded on varFileName, which is set at §7 long before any file existed, so any early failure hit Delete file on a 404 and the catch itself failed.',flag:'fix',
+           cfg:[['Name','varFileCreated'],['Value','true']]}),
+
         A('Set varFileUrl','Variable','var',
-          {note:"body('Create_export_file')?['{Link}'] — never build the URL by hand"}),
+          {note:'Take the URL from the connector, never build it. A hand-built path breaks the day someone renames the library, and a library URL often differs from its display name.',flag:'fix',
+           cfg:[['Name','varFileUrl'],['Value',"body('Create_export_file')?['{Link}']"]]}),
 
         {k:'sw', name:'Switch shape', sec:'§11.4', expr:"variables('varExportType')",
-         note:'Again two differently named Set actions, for the same reason as Switch source full',
+         note:'One Select per type, mapping SharePoint items to the flat objects the scripts consume. Never an Apply to each — a Select maps the whole array in one action.',
+         cfg:[['On',"variables('varExportType')"],['Cases','Inventory · Requests'],['Default case','none']],
          cases:[
            {label:'Inventory',children:[
-             A('Shape inventory','Data Operation · Select','data',{note:'20 writable columns: A–S plus U (IMEI). T and V–AC are check formulas.'}),
-             A('Set varShaped inventory','Variable','var',{flag:'fix'})]},
+             A('Shape inventory','Data Operation · Select','data',
+               {cfg:[['From',"variables('varItems')"],
+                     ['Map','the 20 writable columns of Table_query'],
+                     ['Template layout','writable = A–S plus U (IMEI). T and V–AC hold check formulas and must NOT be written','warn'],
+                     ['Retry / Timeout',NO_RETRY]]}),
+             A('Set varShaped inventory','Variable','var',
+               {flag:'fix',
+                cfg:[['Name','varShaped'],['Value',"body('Shape_inventory')"],
+                     ['Why the odd name','the Requests case has its own Set action; names are globally unique']]})]},
            {label:'Requests',children:[
              A('Shape requests','Data Operation · Select','data',
-               {note:"Allow-list. ?['Value'] on 3 Choice cols, ?['DisplayName'] on TransferdTo, and a country key so the hidden Country column can feed IsPhoneValid."}),
-             A('Set varShaped requests','Variable','var',{flag:'fix'})]}
+               {note:'Allow-list, not "everything except" — a column added to the Order List next year defaults to NOT being sent, which is the safe direction.',
+                cfg:[['From',"variables('varItems')"],
+                     ['Map (text mode)','{\n "requestId": "@{item()?[\'ID\']}",\n "requestType": "@{item()?[\'RequestType\']?[\'Value\']}",\n "country": "@{variables(\'varCountry\')}",\n "gdid": "@{item()?[\'GDID\']}",\n "requestedFor": "@{item()?[\'Requestedfor\']}",\n "provider": "@{item()?[\'Provider\']}",\n "ticketId": "@{item()?[\'Ticket_ID\']}",\n "phoneNr": "@{item()?[\'PhoneNr\']}",\n "iccid": "@{item()?[\'ICCID\']}",\n "currentIccid": "@{item()?[\'ICCID\']}",\n "simType": "@{item()?[\'SIMType\']?[\'Value\']}",\n "newSimType": "@{item()?[\'newSimType\']}",\n "planName": "@{item()?[\'PlanName\']}",\n "newPlan": "@{item()?[\'NewPlan\']}",\n "vrCompatible": "@{if(item()?[\'VRCompatible\'],\'Yes\',\'No\')}",\n "deliveryAddress": "@{item()?[\'DeliveryAddress\']}",\n "location": "@{item()?[\'Location\']}",\n "simInventoryId": "@{item()?[\'simInventoryID\']}",\n "transferdTo": "@{item()?[\'TransferdTo\']?[\'DisplayName\']}",\n "startDate": "@{item()?[\'StartDate\']}"\n}'],
+                     ["?['Value'] × 3",'RequestType, SIMType — without it a Choice lands in the sheet as [object Object]','warn'],
+                     ["?['DisplayName']",'TransferdTo is a User column'],
+                     ['country','has no source column — it feeds the hidden Country column that IsPhoneValid needs'],
+                     ['requestId is a STRING','§12.3 compares it to varSkippedIds, which the script emits as strings. int() breaks stamping silently','warn'],
+                     ['Never sent','WorkHistory · ApprovalPlanJson · Justification · LineManager · Requestedby'],
+                     ['Retry / Timeout',NO_RETRY]]}),
+             A('Set varShaped requests','Variable','var',
+               {flag:'fix',cfg:[['Name','varShaped'],['Value',"body('Shape_requests')"]]})]}
          ]},
 
         {k:'until', name:'Do until write chunks', sec:'§11.5',
-         expr:'greaterOrEquals(varChunkOffset, length(varShaped))',
+         expr:"greaterOrEquals(variables('varChunkOffset'), length(variables('varShaped')))",
          limits:'Count 5000 · Timeout PT2H',
          warn:'Defaults are Count 60 / PT1H, and the loop EXITS NORMALLY at the cap — 60k rows would ship a short file that looks perfectly fine',
+         cfg:[['Loop until',"greaterOrEquals(variables('varChunkOffset'), length(variables('varShaped')))"],
+              ['Limits → Count','5000   (default is 60)','warn'],
+              ['Limits → Timeout','PT2H   (default is PT1H)','warn'],
+              ['At 60,000 rows','120 iterations at 500/chunk — the default cap of 60 would silently ship half a file'],
+              ['Retry / Timeout','n/a — a Do until has no retry policy']],
          children:[
-           A('Compose chunk','Data Operation','data',{note:'take(skip(varShaped, varChunkOffset), varChunkSize)'}),
-           A('Compose is final chunk','Data Operation','data',
-             {note:"greaterOrEquals(…), emitting the literal text 'true' or 'false'. v2's table showed lessOrEquals, which is true on EVERY chunk — chunk 1 would protect the sheets and delete the empty tabs before the rest of the data was written.",
-              badges:[{t:'was broken',c:'w'}],flag:'fix'}),
+           A('Compose chunk','Data Operation · Compose','data',
+             {cfg:[['Inputs',"take(skip(variables('varShaped'), variables('varChunkOffset')), variables('varChunkSize'))"],
+                   ['Retry / Timeout',NO_RETRY]]}),
+           A('Compose is final chunk','Data Operation · Compose','data',
+             {note:"v2's table showed lessOrEquals, which is true on EVERY chunk — chunk 1 would protect the sheets and delete the empty tabs before the rest of the data was written.",
+              badges:[{t:'was broken',c:'w'}],flag:'fix',
+              cfg:[['Inputs',"if(greaterOrEquals(add(variables('varChunkOffset'), length(outputs('Compose_chunk'))),\n                   length(variables('varShaped'))),\n   'true', 'false')"],
+                   ['Emits TEXT, not a boolean','so the payload can drop it in UNQUOTED and produce a real JSON boolean','warn'],
+                   ['Why it matters','"finalize":"false" is a non-empty string, and every non-empty string is truthy in JavaScript'],
+                   ['Retry / Timeout',NO_RETRY]]}),
            {k:'sw', name:'Switch script', expr:"variables('varExportType')",
+            cfg:[['On',"variables('varExportType')"],['Cases','Inventory · Requests']],
             cases:[
               {label:'Inventory',children:[
-                A('Run CopyRowsIntoTable','Excel Online · Run script','xl',
-                  {note:'Existing production script, unchanged',badges:[{t:'retry NONE',c:'w'}]})]},
+                A('Run CopyRowsIntoTable','Excel Online (Business) · Run script','xl',
+                  {note:'Existing production script, unchanged.',badges:[{t:'retry NONE',c:'w'}],
+                   cfg:[['Location / Library','SharePoint site · the export library'],
+                        ['File',"@{body('Create_export_file')?['{Identifier}']}"],
+                        ['Script','CopyRowsIntoTable'],
+                        ['tableName','Table_query'],
+                        ['rows',"@{outputs('Compose_chunk')}"],
+                        ['startRowIndex',"@{variables('varChunkOffset')}"],
+                        ['totalExpectedRows',"@{length(variables('varShaped'))}"],
+                        ['columnsCsv','the 20 writable column names'],
+                        ['spareRows','200'],
+                        ['repairFormulas','true'],
+                        ['Settings → Retry Policy','None','warn'],
+                        ['Why None','a script that times out at 120s AFTER writing rows would be retried and the rows written again'],
+                        ['Hard limit','Excel Run script = 120 seconds. An action timeout cannot raise it — that is why this is in a loop']]})]},
               {label:'Requests',children:[
-                A('Compose requests payload','Data Operation','data',
-                  {note:'string(json(concat(…))) with numbers and booleans UNQUOTED. "startRowIndex":"0" skips assertTemplate; "finalize":"false" is truthy in JavaScript and finalizes every chunk.',
-                   badges:[{t:'types matter',c:'w'}],flag:'new'}),
-                A('Run BuildRequestSheets','Excel Online · Run script','xl',
-                  {note:'Chunked. 120s hard timeout is why this is in a loop at all.',badges:[{t:'retry NONE',c:'w'}]}),
-                A('Set varBuildResult','Variable','var'),
-                A('Set varSkippedIds','Variable','var',{note:'union() across chunks'})]}
+                A('Compose requests payload','Data Operation · Compose','data',
+                  {note:'string(json(concat(…))) — the same construction the import flow uses. The json() wrapper parses it, so a malformed payload fails HERE rather than inside the script.',
+                   badges:[{t:'types matter',c:'w'}],flag:'new',
+                   cfg:[['Inputs',"string(json(concat('{\n \"runId\":\"', variables('varRunId'), '\",\n \"country\":\"', variables('varCountry'), '\",\n \"actionedBy\":\"', variables('varActionedBy'), '\",\n \"exportedUtc\":\"', variables('varStartedUtc'), '\",\n \"startRowIndex\":', variables('varChunkOffset'), ',\n \"totalExpectedRows\":', length(variables('varShaped')), ',\n \"finalize\":', outputs('Compose_is_final_chunk'), ',\n \"rowKeyHeader\":\"RequestID\",\n \"textHeaders\":', string(outputs('Compose_text_headers')), ',\n \"typeMap\":', string(outputs('Compose_type_map')), ',\n \"requests\":', string(outputs('Compose_chunk')), '\n}')))"],
+                        ['UNQUOTED','startRowIndex · totalExpectedRows · finalize · textHeaders · typeMap · requests','warn'],
+                        ['"startRowIndex":"0"','fails === 0, so assertTemplate() never runs and ICCIDs truncate silently','warn'],
+                        ['"finalize":"false"','truthy in JavaScript — every chunk would finalize','warn'],
+                        ['Retry / Timeout',NO_RETRY]]}),
+                A('Run BuildRequestSheets','Excel Online (Business) · Run script','xl',
+                  {note:'Chunked. The 120s hard timeout is why this is in a loop at all.',badges:[{t:'retry NONE',c:'w'}],
+                   cfg:[['Location / Library','SharePoint site · the export library'],
+                        ['File',"@{body('Create_export_file')?['{Identifier}']}"],
+                        ['Script','BuildRequestSheets'],
+                        ['payloadJson',"@{outputs('Compose_requests_payload')}"],
+                        ['Settings → Retry Policy','None','warn'],
+                        ['Settings → Timeout',TMO_DEF],
+                        ['Returns','a JSON string in ?[\'result\'] — dynamic keys cannot be schema\'d']]}),
+                A('Set varBuildResult','Variable','var',
+                  {cfg:[['Name','varBuildResult'],
+                        ['Value',"body('Run_BuildRequestSheets')?['result']"],
+                        ['Overwritten each iteration','the last write — the finalize chunk — is the one §11.7 parses']]}),
+                A('Set varSkippedIds','Variable','var',
+                  {note:'union() accumulates across chunks and de-duplicates.',
+                   cfg:[['Name','varSkippedIds'],
+                        ['Value',"union(variables('varSkippedIds'), json(body('Run_BuildRequestSheets')?['result'])?['skippedIds'])"],
+                        ['Strings, not ints','the script emits String(id); §12.3 compares with contains(), which is exact','warn']]})]}
             ]},
-           A('Increment varChunkOffset','Variable','var',
-             {note:'By the ACTUAL chunk length, not varChunkSize — the last partial chunk would overshoot'})
+           A('Increment varChunkOffset','Variable · Increment variable','var',
+             {note:'By the ACTUAL chunk length, not varChunkSize — otherwise the last partial chunk overshoots and the loop disagrees with §11.6.',
+              cfg:[['Name','varChunkOffset'],
+                   ['Value',"length(outputs('Compose_chunk'))"],
+                   ['Retry / Timeout',NO_RETRY]]})
          ]},
 
         {k:'if', name:'Assert all rows written', sec:'§11.6',
-         expr:'greaterOrEquals(varChunkOffset, length(varShaped))',
+         expr:"greaterOrEquals(variables('varChunkOffset'), length(variables('varShaped')))",
+         cfg:[['Type','Control · Condition'],
+              ['Why it exists','a Do until that hits its Count cap EXITS NORMALLY. Without this the flow reports success on a half-written file','warn']],
          yes:[], yesEmpty:'continue',
          no:[
-           A('Set varMessage short write','Variable','var'),
+           A('Set varMessage short write','Variable','var',
+             {cfg:[['Name','varMessage'],
+                   ['Value',"concat('Export aborted: wrote ', variables('varChunkOffset'), ' of ', length(variables('varShaped')), ' rows. The file was deleted. Re-run the export.')"]]}),
            A('Force failure short write','Data Operation · Compose','data',
-             {note:'Input @{div(1,0)}. Power Automate has no throw, and Terminate would skip the catch — so the log would never record it and the partial file would stay in the library looking good.',
-              badges:[{t:'deliberate',c:'w'}]})
+             {note:'Power Automate has no throw, and a Terminate would skip the catch — so the log would never record it and the partial file would stay in the library looking good.',
+              badges:[{t:'deliberate',c:'w'}],
+              cfg:[['Inputs','@{div(1,0)}'],
+                   ['Purpose','fail an action inside Scope - Main so Scope - Catch runs','warn'],
+                   ['Leave a comment on it','so nobody "fixes" it six months from now'],
+                   ['Retry / Timeout',NO_RETRY]]})
          ]},
 
-        {k:'if', name:'Is inventory export', sec:'§13', expr:"equals(varExportType,'Inventory')",
+        {k:'if', name:'Is inventory export', sec:'§13', expr:"equals(variables('varExportType'),'Inventory')",
+         cfg:[['Type','Control · Condition'],['Placement','after §11.6, before §11.7']],
          yes:[
-           A('Run ReadUploadGate','Excel Online · Run script','xl',
-             {note:'Reads Config!J2 (named range UploadGate). Continues on failure — a data-quality nicety must never fail the export it reports on.',
-              badges:[{t:'retry NONE',c:'w'},{t:'continue on fail',c:'n'}],flag:'fix'}),
-           A('Set varDataErrors','Variable','var'),
-           A('Append varNotes data errors','Variable · Append to string','var',
-             {note:'Append, not a self-referencing Set — matching the import flow. Report, never block.',flag:'fix'})
+           A('Run ReadUploadGate','Excel Online (Business) · Run script','xl',
+             {note:'Reads Config!J2 (named range UploadGate). Turns every inventory export into a free data-quality audit using checks the template already computes.',
+              badges:[{t:'retry NONE',c:'w'},{t:'continue on fail',c:'n'}],flag:'fix',
+              cfg:[['File',"@{body('Create_export_file')?['{Identifier}']}"],
+                   ['Script','ReadUploadGate'],
+                   ['Returns','{"gate":"OK|BLOCKED","errorCount":n} as a JSON string'],
+                   ['Settings → Retry Policy','None','warn'],
+                   ['Next action run-after','has succeeded AND has failed','warn'],
+                   ['Why','a data-quality nicety must never fail the export it reports on']]}),
+           A('Set varDataErrors','Variable','var',
+             {cfg:[['Name','varDataErrors'],
+                   ['Value',"int(coalesce(json(body('Run_ReadUploadGate')?['result'])?['errorCount'], 0))"],
+                   ['Run after','has succeeded · has failed','warn']]}),
+           A('Append varNotes data errors','Variable · Append to string variable','var',
+             {note:'Append, not a self-referencing Set — matching the import flow. Report, never block: the admin may be exporting precisely to see the bad rows.',flag:'fix',
+              cfg:[['Name','varNotes'],
+                   ['Value',"@{if(greater(variables('varDataErrors'),0),\n     concat(' | ', variables('varDataErrors'), ' exported row(s) fail validation — see the RowErrors column.'),\n     '')}"]]})
          ], no:[]},
 
         {k:'sw', name:'Switch finalize', sec:'§11.7', expr:"variables('varExportType')",
+         cfg:[['On',"variables('varExportType')"],['Cases','Inventory · Requests']],
          cases:[
            {label:'Inventory',children:[
-             A('Set varRowsExported inventory','Variable','var'),
-             A('Set varSheetBreakdown inventory','Variable','var')]},
+             A('Set varRowsExported inventory','Variable','var',
+               {cfg:[['Name','varRowsExported'],['Value',"length(variables('varShaped'))"]]}),
+             A('Set varSheetBreakdown inventory','Variable','var',
+               {cfg:[['Name','varSheetBreakdown'],
+                     ['Value',"@{concat('Inventory: ', length(variables('varShaped')), ' rows')}"]]})]},
            {label:'Requests',children:[
-             A('Parse build result','Data Operation · Parse JSON','data',{note:'Leave skippedIds untyped'}),
-             A('Set varRowsExported requests','Variable','var',{note:'cumulativeRows — counted from the workbook, not accumulated'}),
-             A('Set varRowsSkipped requests','Variable','var',{note:'A filterable log column, not free text buried in Notes',flag:'new'}),
-             A('Set varSheetBreakdown requests','Variable','var'),
+             A('Parse build result','Data Operation · Parse JSON','data',
+               {cfg:[['Content',"json(variables('varBuildResult'))"],
+                     ['Schema','03 §17 — leave skippedIds UNTYPED','warn'],
+                     ['Why untyped','an empty array with a declared item type throws "expected array of object, got array" on runs where nothing was skipped'],
+                     ['Retry / Timeout',NO_RETRY]]}),
+             A('Set varRowsExported requests','Variable','var',
+               {cfg:[['Name','varRowsExported'],
+                     ['Value',"body('Parse_build_result')?['cumulativeRows']"],
+                     ['Counted from the workbook','not accumulated in the flow — the script has no memory between chunks']]}),
+             A('Set varRowsSkipped requests','Variable','var',
+               {note:'A filterable log column, not free text buried in Notes.',flag:'new',
+                cfg:[['Name','varRowsSkipped'],
+                     ['Value',"length(body('Parse_build_result')?['skipped'])"]]}),
+             A('Set varSheetBreakdown requests','Variable','var',
+               {cfg:[['Name','varSheetBreakdown'],
+                     ['Value',"body('Parse_build_result')?['breakdownText']"]]}),
              A('Set varNotes requests','Variable','var',
-               {note:'Skipped and unmapped requests reported HERE, not shipped in the provider workbook'})]}
+               {note:'Skipped and unmapped requests reported HERE, not shipped in the provider workbook.',
+                cfg:[['Name','varNotes'],
+                     ['Value',"concat(\n  if(greater(length(body('Parse_build_result')?['skipped']),0),\n     concat(length(body('Parse_build_result')?['skipped']), ' request(s) were NOT sent: ', string(body('Parse_build_result')?['skipped']), ' | '), ''),\n  if(greater(length(body('Parse_build_result')?['unfilledHeaders']),0),\n     concat('Columns left empty: ', join(body('Parse_build_result')?['unfilledHeaders'], ', '), ' | '), ''),\n  'Written: ', body('Parse_build_result')?['breakdownText'])"]]})]}
          ]},
 
         {k:'if', name:'Nothing was written', sec:'§11.7a',
-         expr:"and(equals(varExportType,'Requests'), equals(varRowsExported, 0))",
+         expr:"and(equals(variables('varExportType'),'Requests'),\n    equals(variables('varRowsExported'), 0))",
          flag:'new',
+         note:'Every request was skipped, so finalize deleted all five sheets. v2 returned a link to a workbook containing only the Instructions tab, with the message "Export ready: 0 rows".',
+         cfg:[['Type','Control · Condition'],['Requests only','the Inventory path cannot reach 0 rows here']],
          no:[],
          yes:[
-           A('Set varStatus nothing written','Variable','var',{note:'No data'}),
-           A('Set varMessage nothing written','Variable','var',{note:'Names what was rejected and why'}),
+           A('Set varStatus nothing written','Variable','var',
+             {cfg:[['Name','varStatus'],['Value','No data']]}),
+           A('Set varMessage nothing written','Variable','var',
+             {cfg:[['Name','varMessage'],
+                   ['Value',"concat('Nothing could be sent for ', variables('varCountry'), '. All ',\n       variables('varRowsSkipped'), ' approved request(s) were rejected before handover. ',\n       variables('varNotes'))"]]}),
            A('Delete empty export file','SharePoint · Delete file','sp',
-             {note:'Every request was skipped, so finalize deleted all five sheets. v2 returned a link to a workbook containing only the Instructions tab, with the message "Export ready: 0 rows".',
-              badges:[{t:'silent bug',c:'w'}],flag:'new'}),
-           A('Set varFileCreated false','Variable','var'),
-           A('Set varFileUrl empty','Variable','var'),
-           {k:'if', name:'Has log item nothing written', expr:'greater(varLogItemId, 0)',
-            yes:[A('Update log item nothing written','SharePoint · Update item','sp')], no:[]},
-           A('Respond nothing written','Respond to a PowerApp','pa'),
-           A('Set varResponded nothing written','Variable','var'),
-           A('Terminate nothing written','Control · Terminate','ctrl',{badges:[{t:'Succeeded',c:'g'}]})
+             {badges:[{t:'silent bug',c:'w'}],flag:'new',
+              cfg:[['Site Address',SITE],
+                   ['File Identifier',"@{body('Create_export_file')?['{Identifier}']}"],
+                   ['Settings → Retry Policy','None'],
+                   ['Next action run-after','has succeeded · has failed']]}),
+           A('Set varFileCreated false','Variable','var',
+             {cfg:[['Name','varFileCreated'],['Value','false'],
+                   ['Why','so the catch scope does not try to delete it again']]}),
+           A('Set varFileUrl empty','Variable','var',
+             {cfg:[['Name','varFileUrl'],['Value','(empty string)'],
+                   ['Why','deleting the file but leaving the variable set writes a log row linking to nothing','warn']]}),
+           {k:'if', name:'Has log item nothing written', expr:"greater(variables('varLogItemId'), 0)",
+            yes:[A('Update log item nothing written','SharePoint · Update item','sp',
+                   {cfg:[['Site Address',SITE],['List Name','SIM Export Log'],
+                         ['Id',"@{variables('varLogItemId')}"],
+                         ['Status','No data'],['Delivery','None'],
+                         ['Rows_Skipped',"@{variables('varRowsSkipped')}"],
+                         ['ExportFile Url','leave empty — the file was deleted','warn'],
+                         ['All 21 fields','02_Export_Log.md → LOG 1f','warn'],
+                         ['Settings → Retry Policy',RETRY_STD]]})], no:[]},
+           A('Respond nothing written','Respond to a PowerApp','pa',
+             {cfg:[['status',"@{variables('varStatus')}  →  No data"],
+                   ['message',"@{variables('varMessage')}"],
+                   ['fileUrl / shareUrl','empty'],['rows','0'],
+                   ['App handling','Notify · Warning']]}),
+           A('Set varResponded nothing written','Variable','var',{cfg:[['Name','varResponded'],['Value','true']]}),
+           A('Terminate nothing written','Control · Terminate','ctrl',
+             {badges:[{t:'Succeeded',c:'g'}],cfg:[['Status','Succeeded']]})
          ]},
 
-        A('Create sharing link','SharePoint','sp',
-          {note:'Type View, scope Organization. Continues on failure — a tenant sharing policy must not destroy an export whose file is already built. NOTE the provider cannot open this link; it is for the admin.',
-           badges:[{t:'§11.8'},{t:'continue on fail',c:'n'}],flag:'fix'}),
-        A('Set varShareUrl','Variable','var',{note:'coalesce to empty so a blocked link is survivable'}),
-        A('Compose download url','Data Operation','data',{note:"encodeUriComponent over ?['{Path}'], site from the environment variable"}),
-        A('Set varDownloadUrl','Variable','var'),
-        A('Set varStatus completed','Variable','var'),
+        A('Create sharing link','SharePoint · Create sharing link for a file or folder','sp',
+          {note:'The link carries its own access grant, so library permissions stop mattering — and a permissions gap was the whole reason download.aspx surfaced as an uncatchable browser error.',
+           badges:[{t:'§11.8'},{t:'continue on fail',c:'n'}],flag:'fix',
+           cfg:[['Site Address',SITE],
+                ['Library Name','SIM Exports'],
+                ['File Identifier',"@{body('Create_export_file')?['{Identifier}']}"],
+                ['Link Type','View'],
+                ['Link Scope','Organization'],
+                ['Settings → Retry Policy','None'],
+                ['Next action run-after','has succeeded AND has failed','warn'],
+                ['Why it may fail','tenant sharing policy — and a policy change must not destroy an export whose file is already built'],
+                ['The provider CANNOT open this','Organization scope = the bank tenant. The link is for the ADMIN, who downloads and forwards the file','warn']]}),
+
+        A('Set varShareUrl','Variable','var',
+          {flag:'new',
+           cfg:[['Name','varShareUrl'],
+                ['Value',"coalesce(body('Create_sharing_link')?['link']?['webUrl'], '')"],
+                ['Run after','has succeeded · has failed','warn'],
+                ['coalesce','so a blocked link is survivable rather than fatal']]}),
+
+        A('Compose download url','Data Operation · Compose','data',
+          {cfg:[['Inputs',"concat(parameters('simri_SiteUrl'), '/_layouts/15/download.aspx?SourceUrl=',\n       encodeUriComponent(body('Create_export_file')?['{Path}']))"],
+                ['encodeUriComponent','over the connector\'s {Path} — never a hand-built string'],
+                ['Retry / Timeout',NO_RETRY]]}),
+
+        A('Set varDownloadUrl','Variable','var',
+          {cfg:[['Name','varDownloadUrl'],['Value',"outputs('Compose_download_url')"],
+                ['Used by','Launch(gblExport.fileUrl) in PowerApps — forces a download']]}),
+
+        A('Set varStatus completed','Variable','var',
+          {cfg:[['Name','varStatus'],['Value','Completed']]}),
+
         A('Set varMessage ready','Variable','var',
-          {note:'v1 never set a message on the success path — the label was empty exactly when the user succeeded'}),
+          {note:'v1 never set a message on the success path — the label was empty exactly when the user succeeded.',flag:'fix',
+           cfg:[['Name','varMessage'],
+                ['Value',"@{concat('Export ready: ', variables('varRowsExported'), ' rows. ', variables('varSheetBreakdown'))}"]]}),
 
         {k:'if', name:'Is stampable', sec:'§12',
-         expr:"and(equals(varExportType,'Requests'), greater(varRowsExported,0))",
+         expr:"and(equals(variables('varExportType'),'Requests'),\n    greater(variables('varRowsExported'),0))",
+         cfg:[['Type','Control · Condition'],
+              ['Placement','AFTER the file is confirmed written, never before','warn'],
+              ['Why','if the build fails after stamping, requests are marked exported and were never sent — worse than the failure being prevented']],
          no:[],
          yes:[
            A('Set varStampUtc','Variable','var',
-             {note:'Once, here. utcNow() inside the loop would drift — and one stamp per run is what lets §16.6 identify exactly which rows to undo.'}),
-           A('Filter array stampable','Data Operation','data',
-             {note:'Excludes skipped rows — they were never sent, so they must stay unstamped. Both sides of the comparison are strings.'}),
-           A('Select stamp ids','Data Operation','data'),
+             {note:'Once, here. utcNow() inside the loop would drift — and one stamp per run is what lets §16.6 identify exactly which rows to undo.',
+              cfg:[['Name','varStampUtc'],['Value','utcNow()'],
+                   ['NOT inside the loop','every request in one handover should carry one timestamp','warn']]}),
+           A('Filter array stampable','Data Operation · Filter array','data',
+             {note:'Rows the script routed to unmapped or incomplete were never sent, so they must stay unstamped and be picked up by the next export.',
+              cfg:[['From',"variables('varShaped')"],
+                   ['Condition (advanced)',"@not(contains(variables('varSkippedIds'), item()?['requestId']))"],
+                   ['Both sides are strings','contains() on an array is an exact match — a type change silently stops excluding anything','warn'],
+                   ['Retry / Timeout',NO_RETRY]]}),
+           A('Select stamp ids','Data Operation · Select','data',
+             {cfg:[['From',"body('Filter_array_stampable')"],
+                   ['Map','text mode (the T toggle) — a single value, not key/value pairs','warn'],
+                   ['Value',"@{item()?['requestId']}"],
+                   ['Retry / Timeout',NO_RETRY]]}),
            {k:'until', name:'Do until stamp batches', sec:'§12.5',
-            expr:'greaterOrEquals(varStampOffset, length(Select stamp ids))',
+            expr:"greaterOrEquals(variables('varStampOffset'), length(body('Select_stamp_ids')))",
             limits:'Count 5000 · Timeout PT1H',
+            cfg:[['Loop until',"greaterOrEquals(variables('varStampOffset'), length(body('Select_stamp_ids')))"],
+                 ['Limits → Count','5000','warn'],
+                 ['Limits → Timeout','PT1H','warn'],
+                 ['Throughput','100 rows per call — 2,000 rows is 20 calls and a few seconds'],
+                 ['vs Apply to each','Update item is 1 API call per row against ~600/60s. 2,000 rows would not finish inside the sync path']],
             children:[
-              A('Compose stamp chunk','Data Operation','data',{note:'100 ids per batch'}),
-              A('Compose batch id','Data Operation','data',{note:'guid()'}),
-              A('Compose changeset id','Data Operation','data',{note:'guid()'}),
-              A('Select changeset parts','Data Operation','data',
-                {note:"One PATCH per id. decodeUriComponent('%0D%0A') is how you get a literal CRLF — the $batch parser rejects a bare LF."}),
-              A('Compose batch body','Data Operation','data',{note:'Boundary must match the header exactly'}),
-              A('Send stamp batch','SharePoint · Send an HTTP request','sp',
-                {note:'POST _api/$batch. 100 rows per call instead of 100 Update item calls. Check DLP permits this connector action before building.',badges:[{t:'retry NONE',c:'w'}]}),
-              {k:'if', name:'Check batch response', expr:"contains(body,'HTTP/1.1 4') or 'HTTP/1.1 5'",
+              A('Compose stamp chunk','Data Operation · Compose','data',
+                {cfg:[['Inputs',"take(skip(body('Select_stamp_ids'), variables('varStampOffset')), variables('varBatchSize'))"],
+                      ['varBatchSize','100'],['Retry / Timeout',NO_RETRY]]}),
+              A('Compose batch id','Data Operation · Compose','data',
+                {cfg:[['Inputs','guid()'],['Used in','the multipart boundary — header and body must match exactly'],['Retry / Timeout',NO_RETRY]]}),
+              A('Compose changeset id','Data Operation · Compose','data',
+                {cfg:[['Inputs','guid()'],['Retry / Timeout',NO_RETRY]]}),
+              A('Select changeset parts','Data Operation · Select','data',
+                {note:"decodeUriComponent('%0D%0A') is how you get a literal CRLF into an expression — the $batch MIME parser rejects a bare LF, and typing a real newline into the designer is unreliable.",
+                 cfg:[['From',"outputs('Compose_stamp_chunk')"],
+                      ['Map','text mode','warn'],
+                      ['Value',"@{concat(\n'--changeset_', outputs('Compose_changeset_id'), decodeUriComponent('%0D%0A'),\n'Content-Type: application/http', decodeUriComponent('%0D%0A'),\n'Content-Transfer-Encoding: binary', decodeUriComponent('%0D%0A%0D%0A'),\n'PATCH ', parameters('simri_SiteUrl'), '/_api/web/lists(guid''', parameters('simri_OrderListId'), ''')/items(', item(), ') HTTP/1.1', decodeUriComponent('%0D%0A'),\n'Content-Type: application/json;odata=nometadata', decodeUriComponent('%0D%0A'),\n'Accept: application/json;odata=nometadata', decodeUriComponent('%0D%0A'),\n'IF-MATCH: *', decodeUriComponent('%0D%0A%0D%0A'),\n'{\"ExportedOn\":\"', variables('varStampUtc'), '\",\"ExportRunId\":\"', variables('varRunId'), '\"}', decodeUriComponent('%0D%0A')\n)}"],
+                      ['Retry / Timeout',NO_RETRY]]}),
+              A('Compose batch body','Data Operation · Compose','data',
+                {cfg:[['Inputs',"@{concat(\n'--batch_', outputs('Compose_batch_id'), decodeUriComponent('%0D%0A'),\n'Content-Type: multipart/mixed; boundary=\"changeset_', outputs('Compose_changeset_id'), '\"', decodeUriComponent('%0D%0A%0D%0A'),\njoin(body('Select_changeset_parts'), ''),\n'--changeset_', outputs('Compose_changeset_id'), '--', decodeUriComponent('%0D%0A'),\n'--batch_', outputs('Compose_batch_id'), '--', decodeUriComponent('%0D%0A')\n)}"],
+                      ['Boundary','must match the Content-Type header exactly — both come from the same Compose','warn'],
+                      ['Retry / Timeout',NO_RETRY]]}),
+              A('Send stamp batch','SharePoint · Send an HTTP request to SharePoint','sp',
+                {note:'The connector handles the form digest for you.',badges:[{t:'retry Exp/4',c:'n'}],flag:'new',
+                 cfg:[['Site Address',SITE],
+                      ['Method','POST'],
+                      ['Uri','_api/$batch'],
+                      ['Header 1',"Content-Type : @{concat('multipart/mixed; boundary=\"batch_', outputs('Compose_batch_id'), '\"')}"],
+                      ['Header 2','Accept : application/json;odata=nometadata'],
+                      ['Body',"@{outputs('Compose_batch_body')}   — put the expression in directly, do NOT wrap it in quotes",'warn'],
+                      ['Settings → Retry Policy',RETRY_STD],
+                      ['Why retry IS safe here','the PATCH body is fixed for the whole run, so re-sending writes the same two values. Unlike the scripts, this is idempotent'],
+                      ['Settings → Timeout',TMO_DEF],
+                      ['DLP','this connector action is blocked in some tenants — confirm before building (08 §3)','warn']]}),
+              {k:'if', name:'Check batch response',
+               expr:"or(contains(string(body('Send_stamp_batch')), 'HTTP/1.1 4'),\n   contains(string(body('Send_stamp_batch')), 'HTTP/1.1 5'))",
+               note:'$batch returns HTTP 200 even when operations inside it failed. Without this check, stamping silently does nothing and the double handover happens anyway.',
+               cfg:[['Type','Control · Condition'],
+                    ['A successful PATCH','returns HTTP/1.1 204 — matches neither pattern'],
+                    ['Verify on run 1','where the connector puts a multipart response: body(...) or outputs(...)?[\'body\']']],
                yes:[
-                 A('Set varMessage stamp failed','Variable','var'),
+                 A('Set varMessage stamp failed','Variable','var',
+                   {cfg:[['Name','varMessage'],
+                         ['Value',"concat('Stamping failed at offset ', variables('varStampOffset'), ' of ', length(body('Select_stamp_ids')), '. The file was deleted and the stamps already applied have been cleared.')"]]}),
                  A('Force failure stamp','Data Operation · Compose','data',
-                   {note:'$batch returns 200 even when operations inside it failed. Without this check, stamping silently does nothing and the double handover happens anyway.',
-                    badges:[{t:'deliberate',c:'w'}]})
+                   {note:'A file that was built but whose rows were not stamped must not be delivered — the next export would send them again.',
+                    badges:[{t:'deliberate',c:'w'}],
+                    cfg:[['Inputs','@{div(1,0)}'],['Purpose','route into Scope - Catch, which then compensates in §16.6'],['Retry / Timeout',NO_RETRY]]})
                ], no:[]},
-              A('Increment varStampOffset','Variable','var'),
-              A('Increment varStampedCount','Variable','var')
+              A('Increment varStampOffset','Variable · Increment variable','var',
+                {cfg:[['Name','varStampOffset'],['Value',"length(outputs('Compose_stamp_chunk'))"]]}),
+              A('Increment varStampedCount','Variable · Increment variable','var',
+                {cfg:[['Name','varStampedCount'],['Value',"length(outputs('Compose_stamp_chunk'))"],
+                      ['Increments AFTER success','so a retried-then-succeeded batch still counts once'],
+                      ['Read by','§16.6 — is there anything to undo?']]})
             ]},
-           A('Append varNotes stamped','Variable · Append to string','var',{flag:'fix'})
+           A('Append varNotes stamped','Variable · Append to string variable','var',
+             {flag:'fix',
+              cfg:[['Name','varNotes'],
+                   ['Value',"@{concat(' | Stamped ', variables('varStampedCount'), ' request(s) with RunId ', variables('varRunId'), if(variables('varReExport'),' (RE-EXPORT)',''))}"],
+                   ['Append, not Set','a self-referencing Set has documented ordering hazards']]})
          ]},
 
         {k:'if', name:'Was async', sec:'§14', expr:"equals(variables('varAsync'), true)",
-         yes:[A('Send export email','Outlook · Send an email','mail',
-                {note:'A LINK, never an attachment — a 60k-row workbook is ~28 MB against the ~25 MB Outlook attachment cap'})],
-         no:[A('Respond ready','Respond to a PowerApp','pa'),
-             A('Set varResponded ready','Variable','var')]},
+         cfg:[['Type','Control · Condition'],
+              ['Exactly one Respond per run','Respond invalid · unauthorised · claim rejected · no data · nothing written · queued · ready']],
+         yes:[A('Send export email','Outlook · Send an email (V2)','mail',
+                {note:'A LINK, never an attachment — a 60k-row workbook is ~28 MB against the ~25 MB Outlook attachment cap.',
+                 cfg:[['To',"@{variables('varActionedBy')}"],
+                      ['Subject',"@{concat('Your ', variables('varCountry'), ' ', variables('varExportType'), ' export is ready')}"],
+                      ['Body','link = coalesce(varShareUrl, varDownloadUrl) · varSheetBreakdown · varNotes'],
+                      ['Style','match ../SIM Inventory/Email_Templates.md'],
+                      ['Attachments','NONE — a link, always','warn'],
+                      ['Settings → Retry Policy',RETRY_STD],
+                      ['Include varNotes','the skipped-request list is the part the admin must act on']]})],
+         no:[A('Respond ready','Respond to a PowerApp','pa',
+                {cfg:[['status',"@{variables('varStatus')}  →  Completed"],
+                      ['message',"@{variables('varMessage')}"],
+                      ['fileUrl',"@{variables('varDownloadUrl')}"],
+                      ['shareUrl',"@{variables('varShareUrl')}"],
+                      ['rows',"variables('varRowsExported')  — bare expression",'warn'],
+                      ['App handling','Launch(gblExport.fileUrl)']]}),
+             A('Set varResponded ready','Variable','var',{cfg:[['Name','varResponded'],['Value','true']]})]},
 
-        {k:'if', name:'Has log item', sec:'§14.1', expr:'greater(varLogItemId, 0)',
+        {k:'if', name:'Has log item', sec:'§14.1', expr:"greater(variables('varLogItemId'), 0)",
+         cfg:[['Placement','LAST action INSIDE Scope - Main','warn'],
+              ['Why inside','outside it, a failure sending the email would leave the log claiming Running on a run that produced a file']],
          yes:[A('Update log item','SharePoint · Update item','sp',
-                {note:'LOG 2 — last action INSIDE the scope. Repopulate every field: Update item writes the whole item. Delivery comes from varAsync, not from row count.'})], no:[]}
+                {note:'LOG 2. Repopulate every field: Update item writes the whole item, so anything left blank is written as blank.',
+                 cfg:[['Site Address',SITE],['List Name','SIM Export Log'],
+                      ['Id',"@{variables('varLogItemId')}"],
+                      ['Status',"@{if(equals(variables('varRowsExported'),0),'No data',variables('varStatus'))}"],
+                      ['Delivery',"@{if(equals(variables('varRowsExported'),0),'None',if(variables('varAsync'),'Emailed','Link returned'))}"],
+                      ['Delivery from varAsync','NOT from a row count — the async decision was made on the probe count','warn'],
+                      ['Finished',"@{utcNow()}"],
+                      ['DurationSeconds',"@{div(sub(ticks(utcNow()),ticks(variables('varStartedUtc'))),10000000)}"],
+                      ['All 21 fields','02_Export_Log.md → LOG 2','warn'],
+                      ['Settings → Retry Policy',RETRY_STD]]})], no:[]}
       ]}
    ]},
 
   {k:'scope', name:'Scope - Catch', sec:'§16', cls:'catch',
    run:'run after Scope - Main: has failed, is skipped, has timed out',
+   cfg:[['Run after','has failed · is skipped · has timed out','warn'],
+        ['Golden rule','every reference in here must resolve no matter how early the failure happened','warn'],
+        ['Reference nothing from Scope - Main','except Compose error detail, which is built defensively']],
    children:[
      A('Filter array failed actions','Data Operation · Filter array','data',
-       {note:"From result('Scope_-_Main') where status = Failed. v2 used where(), which is NOT a Power Automate function — the expression cannot be saved, so the error handler could not be built as written.",
-        badges:[{t:'was unbuildable',c:'w'}],flag:'fix'}),
-     A('Compose error detail','Data Operation','data',
-       {note:'Length-guarded truncation: substring(s,0,2000) THROWS when s is shorter than 2000. Explicit length tests rather than coalesce, because an empty string is not null. Falls back to varMessage, then to a timeout note.',
-        flag:'fix'}),
-     {k:'if', name:'Has log item failed', expr:'greater(varLogItemId, 0)',
-      yes:[A('Update log item failed','SharePoint · Update item','sp',{note:'LOG 3 — Status Failed'})], no:[]},
-     {k:'if', name:'Can respond', expr:"equals(variables('varResponded'), false)",
-      yes:[A('Respond failed','Respond to a PowerApp','pa',{note:'Only if nobody responded yet'})],
-      no:[A('Send failure email','Outlook · Send an email','mail',
-            {note:'The async hole in v1: Respond queued already fired, so a second Respond fails and takes the whole catch scope down. Email is the only channel left.'})]},
-     {k:'if', name:'Was file created', expr:"equals(variables('varFileCreated'), true)",
+       {note:"v2 used where(), which is NOT a Power Automate function — the expression cannot be saved, so the error handler could not be built as written.",
+        badges:[{t:'was unbuildable',c:'w'}],flag:'fix',
+        cfg:[['From',"result('Scope_-_Main')"],
+             ['Condition','item()?[\'status\']  is equal to  Failed'],
+             ['result() scope','returns the TOP-LEVEL actions of the scope; a nested failure surfaces as the container with the error inside'],
+             ['Retry / Timeout',NO_RETRY]]}),
+     A('Compose error detail','Data Operation · Compose','data',
+       {note:'Length-guarded truncation. substring(s,0,2000) THROWS when s is shorter than 2000 — an error inside the error handler.',
+        flag:'fix',
+        cfg:[['Inputs',"if(greater(length(coalesce(string(first(body('Filter_array_failed_actions'))?['error']?['message']),'')), 0),\n   if(greater(length(string(first(body('Filter_array_failed_actions'))?['error']?['message'])), 1900),\n      concat(substring(string(first(body('Filter_array_failed_actions'))?['error']?['message']), 0, 1900), ' … truncated'),\n      string(first(body('Filter_array_failed_actions'))?['error']?['message'])),\n   if(greater(length(variables('varMessage')), 0),\n      variables('varMessage'),\n      'Scope - Main failed with no action-level error, which usually means a timeout. See the flow run link.'))"],
+             ['Why not coalesce alone','an empty string is not null, so coalesce(\'\', x) returns the empty string','warn'],
+             ['Why the fallback chain','a scope TIMEOUT produces no failed child action at all'],
+             ['Column limit','SharePoint multi-line text caps at 63,999 characters; string(result(...)) on a 60k export is tens of MB'],
+             ['Retry / Timeout',NO_RETRY]]}),
+     A('Set varStatus failed','Variable','var',
+       {cfg:[['Name','varStatus'],['Value','Failed']]}),
+     A('Set varMessage failed','Variable','var',
+       {note:'"You can safely run it again" is a claim the design earns — §16.5 deletes the partial file and §16.6 clears any stamps. Do not soften it; an admin who is unsure will phone someone instead of re-running.',
+        flag:'new',
+        cfg:[['Name','varMessage'],
+             ['Value',"concat('The export for ', variables('varCountry'), ' failed and no file was produced. Nothing has been sent to a provider, and you can safely run it again. Reference ', variables('varRunId'), '.')"]]}),
+     {k:'if', name:'Has log item failed', expr:"greater(variables('varLogItemId'), 0)",
+      yes:[A('Update log item failed','SharePoint · Update item','sp',
+             {note:'LOG 3. The counters keep whatever they reached — that is how far the run got.',
+              cfg:[['Site Address',SITE],['List Name','SIM Export Log'],
+                   ['Id',"@{variables('varLogItemId')}"],
+                   ['Status','Failed'],['Delivery','None'],
+                   ['ErrorMessage',"@{outputs('Compose_error_detail')}"],
+                   ['ExportFile Url','leave empty — the partial file is deleted','warn'],
+                   ['Rows_Stamped',"@{variables('varStampedCount')}  — non-zero means §16.6 had work to do"],
+                   ['All 21 fields','02_Export_Log.md → LOG 3','warn'],
+                   ['Settings → Retry Policy',RETRY_STD]]})], no:[]},
+     {k:'if', name:'Can respond', expr:"equals(variables('varResponded'), false)", flag:'fix',
+      note:'The async hole in v1: Respond queued already fired, so a second Respond fails and takes the whole catch scope down. Email is the only channel left.',
+      cfg:[['Type','Control · Condition'],
+           ['Only one Respond per run','a second one fails, and a failing catch scope logs nothing','warn']],
+      yes:[A('Respond failed','Respond to a PowerApp','pa',
+             {cfg:[['status',"@{variables('varStatus')}  →  Failed"],
+                   ['message',"@{variables('varMessage')}"],
+                   ['fileUrl / shareUrl','empty'],
+                   ['rows',"variables('varRowsExported')  — whatever was reached"],
+                   ['App handling','Notify · Error (the default arm)']]})],
+      no:[A('Send failure email','Outlook · Send an email (V2)','mail',
+            {cfg:[['To',"@{variables('varActionedBy')}"],
+                  ['Subject',"@{concat('Your ', variables('varCountry'), ' export failed')}"],
+                  ['Body',"@{variables('varMessage')} + @{outputs('Compose_error_detail')} + the run link"],
+                  ['Include the RunId','if §16.6 could not complete, manual cleanup needs it','warn'],
+                  ['Settings → Retry Policy',RETRY_STD]]})]},
+     {k:'if', name:'Was file created', expr:"equals(variables('varFileCreated'), true)", flag:'fix',
+      cfg:[['Why not varFileName','it is set at §7, long before any file exists — v1 hit Delete file on a 404 and the catch itself failed','warn']],
       yes:[A('Delete partial file','SharePoint · Delete file','sp',
-             {note:'run after includes has failed — deleting a stray file is best-effort and must never break the handler',
-              badges:[{t:'continue on fail'}]})], no:[]},
-     {k:'if', name:'Was anything stamped', sec:'§16.6', expr:'greater(varStampedCount, 0)', flag:'new',
+             {badges:[{t:'continue on fail'}],
+              cfg:[['Site Address',SITE],
+                   ['File Identifier',"@{body('Create_export_file')?['{Identifier}']}"],
+                   ['Settings → Retry Policy','None'],
+                   ['Next action run-after','has succeeded AND has failed','warn'],
+                   ['Best-effort','deleting a stray file must never break the handler']]})], no:[]},
+     {k:'if', name:'Was anything stamped', sec:'§16.6', expr:"greater(variables('varStampedCount'), 0)", flag:'new',
+      note:'Without this, §12.5 failing on batch 7 of 20 leaves 600 requests marked as handed over to a provider that never received them — and they never appear in another export.',
+      cfg:[['Type','Control · Condition'],
+           ['Why it is possible to undo','§12.2 stamps ONE ExportRunId for the whole run, so the rows are exactly identifiable'],
+           ['Cannot cover','an admin cancelling the run — neither the catch nor this runs. See 08 §7 for the manual procedure','warn']],
       yes:[
         A('Get stamped rows','SharePoint · Get items','sp',
-          {note:"ExportRunId eq varRunId — because §12.2 stamps one RunId for the whole run, the rows to undo are exactly identifiable",flag:'new'}),
-        A('Select unstamp ids','Data Operation','data',{flag:'new'}),
-        {k:'until', name:'Do until unstamp batches', expr:'greaterOrEquals(offset, length(Select unstamp ids))',
+          {flag:'new',
+           cfg:[['Site Address',SITE],
+                ['List Name',"Global Order List · @{parameters('simri_OrderListId')}"],
+                ['Filter Query',"ExportRunId eq '@{variables('varRunId')}'"],
+                ['Limit Columns by View','a view containing ID only'],
+                ['Top Count','5000'],
+                ['Settings → Pagination','On · Threshold 100000'],
+                ['Settings → Retry Policy',RETRY_STD]]}),
+        A('Select unstamp ids','Data Operation · Select','data',
+          {flag:'new',
+           cfg:[['From',"body('Get_stamped_rows')?['value']"],
+                ['Map','text mode'],['Value',"@{item()?['ID']}"],
+                ['Retry / Timeout',NO_RETRY]]}),
+        {k:'until', name:'Do until unstamp batches',
+         expr:"greaterOrEquals(variables('varUnstampOffset'), length(body('Select_unstamp_ids')))",
          limits:'Count 5000 · Timeout PT1H', flag:'new',
+         cfg:[['Limits → Count','5000','warn'],['Limits → Timeout','PT1H','warn'],
+              ['Shape','identical to §12.5 — chunk, batch id, changeset id, select parts, body, send'],
+              ['Extra variable','varUnstampOffset (Integer, 0) — add it to §2']],
          children:[
-           A('Send unstamp batch','SharePoint · Send an HTTP request','sp',
-             {note:'PATCH {"ExportedOn":null,"ExportRunId":null}. Without this, a $batch that fails on call 7 of 20 leaves 600 requests marked as handed over to a provider that never received them — and they never appear in another export.',
-              badges:[{t:'the expensive one',c:'w'}],flag:'new'})
+           A('Send unstamp batch','SharePoint · Send an HTTP request to SharePoint','sp',
+             {note:'PATCH both fields back to null, so the requests reappear in the next export.',
+              badges:[{t:'the expensive one',c:'w'}],flag:'new',
+              cfg:[['Method','POST'],['Uri','_api/$batch'],
+                   ['PATCH body','{"ExportedOn":null,"ExportRunId":null}'],
+                   ['Settings → Retry Policy',RETRY_STD],
+                   ['Idempotent','setting null twice is the same as once'],
+                   ['Run after','configure so a compensation failure still reaches Terminate failed','warn']]})
          ]},
-        A('Append varNotes compensated','Variable · Append to string','var',{flag:'new'})
+        A('Append varNotes compensated','Variable · Append to string variable','var',
+          {flag:'new',
+           cfg:[['Name','varNotes'],
+                ['Value',"@{concat(' | COMPENSATION: cleared the export stamp from ', length(body('Select_unstamp_ids')), ' request(s) after a stamping failure. They will be picked up by the next export.')}"],
+                ['If the batch failed','this note is not written — which is why the failure email must carry the RunId','warn']]})
       ], no:[]},
-     A('Terminate failed','Control · Terminate','ctrl',{note:'Status Failed'})
+     A('Terminate failed','Control · Terminate','ctrl',
+       {cfg:[['Status','Failed'],
+             ['Run code','leave blank'],['Run message','leave blank'],
+             ['Placement','last action in the catch — everything above must have run first']]})
    ]}
 ];
 
@@ -547,7 +1233,7 @@ const ICON={pa:'⚡',ctrl:'⛭',var:'{x}',data:'⋯',sp:'▤',xl:'▦',mail:'✉
 const COLOR={pa:'var(--pa)',ctrl:'var(--ctrl)',var:'var(--var)',data:'var(--data)',
              sp:'var(--sp)',xl:'var(--xl)',mail:'var(--mail)'};
 const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-let counts={a:0,if:0,sw:0,until:0,scope:0,new:0,fix:0};
+let counts={a:0,if:0,sw:0,until:0,scope:0,new:0,fix:0,cfg:0};
 
 function link(stub){return `<div class="link${stub?' stub':''}"></div>`;}
 
@@ -563,12 +1249,35 @@ function badges(n){
   return '<div class="badges">'+b.map(x=>`<span class="b ${x.c||''}">${esc(x.t)}</span>`).join('')+'</div>';
 }
 
+/* The config panel. Rows are [label, value, 'warn'?].
+   Values keep their newlines — expressions are unreadable on one line. */
+function cfgRows(rows){
+  return rows.map(r=>{
+    const cls = r[2]==='warn' ? ' class="warnrow"' : '';
+    const v = String(r[1]);
+    const isNote = /^(leave blank|n\/a|none$|default)/i.test(v) || v.startsWith('(');
+    return `<tr${cls}><td class="k">${esc(r[0])}</td><td class="v">${
+      isNote?`<em>${esc(v)}</em>`:esc(v)}</td></tr>`;
+  }).join('');
+}
+
+function cfgBlock(n,cls){
+  if(!n.cfg||!n.cfg.length) return '';
+  counts.cfg++;
+  return `<div class="${cls}"><table>${cfgRows(n.cfg)}</table></div>`;
+}
+
 function card(n){
   counts.a++; if(n.flag==='new')counts.new++; if(n.flag==='fix')counts.fix++;
-  return `<div class="card ${n.flag?'flag-'+n.flag:''}">
+  const has = !!(n.cfg&&n.cfg.length);
+  return `<div class="card ${n.flag?'flag-'+n.flag:''} ${has?'hascfg':''}" data-name="${esc(n.name.toLowerCase())}">
     <div class="ico" style="background:${COLOR[n.conn]||'#666'}">${ICON[n.conn]||'•'}</div>
-    <div class="body"><div class="nm">${esc(n.name)}</div><div class="ty">${esc(n.type||'')}</div>
-    ${badges(n)}${n.note?`<div class="note">${esc(n.note)}</div>`:''}</div></div>`;
+    <div class="body">
+      <div class="nmrow"><span class="nm">${esc(n.name)}</span>${has?'<span class="gear">⚙ config</span>':''}</div>
+      <div class="ty">${esc(n.type||'')}</div>
+      ${badges(n)}${n.note?`<div class="note">${esc(n.note)}</div>`:''}
+      ${cfgBlock(n,'cfg')}
+    </div></div>`;
 }
 
 function branch(label,cls,nodes,emptyText,d,ctx){
@@ -577,8 +1286,6 @@ function branch(label,cls,nodes,emptyText,d,ctx){
   return `<div class="branch"><div class="blabel ${cls}">${esc(label)}</div>${inner}</div>`;
 }
 
-/* One wrapper for every container, so a Condition reads exactly like a Scope:
-   a titled box you can see the walls of, and a footer that says you are out of it. */
 function box(o){
   const dd = 'd'+Math.min(o.d||0,6);
   return `<div class="box ${o.cls} ${dd}" data-box>
@@ -600,7 +1307,8 @@ function head(n,extra,warn){
     (bs.length?'<div class="badges" style="justify-content:center">'+
       bs.map(x=>`<span class="b ${x.c||''}">${esc(x.t)}</span>`).join('')+'</div>':'')+
     (n.note?`<div class="hint">${esc(n.note)}</div>`:'')+
-    (warn?`<div class="hint warn">${esc(warn)}</div>`:'');
+    (warn?`<div class="hint warn">${esc(warn)}</div>`:'')+
+    cfgBlock(n,'ctnrcfg');
 }
 
 function render(n,d,ctx){
@@ -638,6 +1346,7 @@ function render(n,d,ctx){
     return box({cls:'scope '+(n.cls||''), d, glyph:'▣', kind:'Scope', name:n.name,
       sub:n.run||'', parent:ctx,
       inner: (n.sec?`<div class="badges" style="justify-content:center"><span class="b">${esc(n.sec)}</span></div>`:'')+
+             cfgBlock(n,'ctnrcfg')+
              seq(n.children,d+1,n.name)});
   }
   return '';
@@ -648,38 +1357,53 @@ document.getElementById('canvas').innerHTML = seq(FLOW,0,'root sequence');
 document.getElementById('stats').innerHTML =
   `<b>${counts.a}</b> actions · <b>${counts.if}</b> conditions · <b>${counts.sw}</b> switches · `+
   `<b>${counts.until}</b> loops · <b>${counts.scope}</b> scopes · `+
+  `<b>${counts.cfg}</b> with configuration · `+
   `<b>${counts.new}</b> added in v3 · <b>${counts.fix}</b> fixed in v3`;
 
-/* ---- text outline, generated from the same tree ---- */
+/* ---- text outline, generated from the same tree, config included ---- */
+function outCfg(n,pad,out){
+  if(!n.cfg||!n.cfg.length) return;
+  n.cfg.forEach(r=>{
+    const v=String(r[1]).split('\n');
+    out.push(`${pad}      ${r[0]}${r[2]==='warn'?' (!)':''}: ${v[0]}`);
+    v.slice(1).forEach(line=>out.push(`${pad}        ${line}`));
+  });
+}
 function outline(nodes,d=0,out=[]){
   const pad='  '.repeat(d);
   nodes.forEach(n=>{
-    if(n.k==='a'){out.push(`${pad}• ${n.name}   [${n.type}]`);return;}
+    if(n.k==='a'){out.push(`${pad}• ${n.name}   [${n.type}]`);outCfg(n,pad,out);return;}
     if(n.k==='if'){
       out.push(`${pad}◆ ${n.name}  (Condition) ${n.sec||''}`);
+      if(n.expr) out.push(`${pad}   when: ${n.expr.replace(/\n/g,' ')}`);
+      outCfg(n,pad,out);
       out.push(`${pad}  IF YES:`); n.yes&&n.yes.length?outline(n.yes,d+2,out):out.push(`${pad}    (${n.yesEmpty||'nothing'})`);
       out.push(`${pad}  IF NO:`);  n.no&&n.no.length ?outline(n.no ,d+2,out):out.push(`${pad}    (${n.noEmpty||'nothing'})`);
       return;
     }
     if(n.k==='sw'){
-      out.push(`${pad}⇄ ${n.name}  (Switch) ${n.sec||''}`);
+      out.push(`${pad}⇄ ${n.name}  (Switch on ${n.expr||''}) ${n.sec||''}`);
+      outCfg(n,pad,out);
       n.cases.forEach(c=>{out.push(`${pad}  CASE ${c.label}:`);outline(c.children,d+2,out);});
       return;
     }
     if(n.k==='until'){
       out.push(`${pad}⟳ ${n.name}  (Do until · ${n.limits||''}) ${n.sec||''}`);
+      outCfg(n,pad,out);
       outline(n.children,d+1,out); return;
     }
     if(n.k==='scope'){
       out.push(`${pad}▣ ${n.name}  (Scope) ${n.sec||''}`);
       if(n.run) out.push(`${pad}  ↳ ${n.run}`);
+      outCfg(n,pad,out);
       outline(n.children,d+1,out); return;
     }
   });
   return out;
 }
 const outText = 'SIM Exports — Power Automate action tree (03_Export_Flow_Spec.md v3)\n'+
-  '='.repeat(72)+'\n\n'+outline(FLOW).join('\n')+'\n';
+  'Configuration lines are indented under each action. (!) marks a non-default setting.\n'+
+  '='.repeat(78)+'\n\n'+outline(FLOW).join('\n')+'\n';
 document.getElementById('outlineText').textContent = outText;
 
 /* ---- controls ---- */
@@ -698,6 +1422,23 @@ function applyZoom(){
 zoom.addEventListener('input', applyZoom);
 window.addEventListener('resize', applyZoom);
 
+/* click a card to open its config */
+document.querySelectorAll('.card.hascfg').forEach(c=>c.addEventListener('click',e=>{
+  e.stopPropagation();
+  c.classList.toggle('open');
+  applyZoom();
+}));
+
+const cfgBtn=document.getElementById('cfgAll');
+let cfgOpen=false;
+cfgBtn.onclick=()=>{
+  cfgOpen=!cfgOpen;
+  document.querySelectorAll('.card.hascfg').forEach(c=>c.classList.toggle('open',cfgOpen));
+  cfgBtn.textContent = cfgOpen ? 'Hide all config' : 'Show all config';
+  cfgBtn.classList.toggle('on',cfgOpen);
+  applyZoom();
+};
+
 document.querySelectorAll('.boxhd').forEach(h=>h.addEventListener('click',()=>{
   const b=h.parentElement;b.classList.toggle('collapsed');
   h.querySelector('.tw').textContent=b.classList.contains('collapsed')?'▶':'▼';
@@ -709,6 +1450,28 @@ document.getElementById('collapseAll').onclick=()=>setAll(true);
 document.getElementById('expandAll').onclick=()=>setAll(false);
 applyZoom();
 document.getElementById('hl').onchange=e=>document.body.classList.toggle('nohl',!e.target.checked);
+
+/* find an action by name — expands any collapsed container above it */
+const find=document.getElementById('find');
+find.addEventListener('input',()=>{
+  const q=find.value.trim().toLowerCase();
+  document.querySelectorAll('.card').forEach(c=>c.classList.remove('hit'));
+  if(q.length<2) return;
+  let first=null;
+  document.querySelectorAll('.card[data-name]').forEach(c=>{
+    if(c.dataset.name.includes(q)){
+      c.classList.add('hit');
+      if(!first) first=c;
+      let p=c.parentElement;
+      while(p){ if(p.classList&&p.classList.contains('collapsed')){
+        p.classList.remove('collapsed');
+        const tw=p.querySelector('.tw'); if(tw) tw.textContent='▼';
+      } p=p.parentElement; }
+    }
+  });
+  applyZoom();
+  if(first) first.scrollIntoView({block:'center',behavior:'smooth'});
+});
 
 const copyBtn=document.getElementById('copyOutline');
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
