@@ -110,12 +110,24 @@ Create `/SIM Exports/Files` as a document library. Apply the retention policy fr
 same time, not later — retrofitting retention across a library of several thousand files is a
 different job.
 
-### 1.7 Templates
+### 1.7 Templates — both already exist
 
-| File | Action |
-|---|---|
-| `SIM_Data_Validation_DEMO.xlsx` | rename to `SIM_Inventory_TEMPLATE.xlsx`; keep the sample-row copy elsewhere. **Check first whether admins link to the old name** as their upload template for the import process |
-| `SIM_Request_Handover_TEMPLATE.xlsx` | build to `06_Handover_Template_Spec.md`, then run the pre-ship checks in its §7 |
+In `/Shared Documents/SIMRI Templates/`. Full metadata, identifiers and drive IDs in
+`12_Template_Files.md`.
+
+| File | State | Action |
+|---|---|---|
+| `Update_Inventory_tetemplate.xlsx` | exists · 33.8 KB | Nothing to create. Verify `06`'s three criticisms against **this** file — they were derived from `SIM_Data_Validation_DEMO.xlsx`, which is a design reference, not this |
+| `Template Approved SIM Request.xlsx` | exists · 21.7 KB | Apply `06_Handover_Template_Spec.md` **to it**, then the pre-ship checks in `06` §7. `assertTemplate()` on the first run reports every gap at once — do not audit it by hand |
+
+Three things to know before you touch either:
+
+- **The library is *Documents* in the UI and *Shared Documents* in the URL.** Every path-based
+  action needs the URL form.
+- **The inventory filename has a typo** — `tetemplate`. Leave it or fix it deliberately; it serves
+  the import flow as well, so a rename can break an admin's bookmarked upload template.
+- **Both carry the sensitivity label "For internal use only"**, and copies inherit it. See §3 and
+  §6 test 0 — this is the one prerequisite that can invalidate the design.
 
 ---
 
@@ -132,8 +144,8 @@ value* per environment.
 | `simri_OrderListId` | Text | `e390b86b-13bb-4655-b3e6-efd5bd068279` |
 | `simri_CountryMatrixId` | Text | `29bf3303-c195-474f-9146-e25d9f0d1b77` |
 | `simri_ExportLibrary` | Text | `/SIM Exports/Files` |
-| `simri_InventoryTemplate` | Text | `/Documents/SIM_Inventory_TEMPLATE.xlsx` |
-| `simri_HandoverTemplate` | Text | `/Documents/SIM_Request_Handover_TEMPLATE.xlsx` |
+| `simri_InventoryTemplate` | Text | `/Shared Documents/SIMRI Templates/Update_Inventory_tetemplate.xlsx` |
+| `simri_HandoverTemplate` | Text | `/Shared Documents/SIMRI Templates/Template Approved SIM Request.xlsx` |
 | `simri_FlowEnvironmentId` | Text | the Power Platform environment GUID from the maker portal URL |
 | `simri_SupportEmail` | Text | wherever the failure digest should land |
 
@@ -157,6 +169,8 @@ per value**, referenced everywhere, so there is exactly one place to change.
 | `Send an HTTP request to SharePoint` is permitted by DLP | §12 stamping is built on it. It is blocked in some tenants as a high-privilege action |
 | SharePoint + Excel Online + Outlook are in the same DLP data group | a policy that separates them blocks the flow from saving at all, with an error that does not say so clearly |
 | Organisation-scoped sharing links are permitted | `03` §11.8. If not, the flow still works — it falls back to the download URL — but confirm before go-live rather than discovering it in the first failure |
+| **The "For internal use only" sensitivity label does not apply encryption** | both templates carry it and every output inherits it. An encrypting label stops `Get file content`, `Create file` and above all **Excel Run script** from working at all. §6 test 0, and `12_Template_Files.md` for what each outcome means |
+| A file carrying that label may be sent to an external provider | or the handover template needs a different label. This is a policy question with a lead time, not a build setting — `09` §3a |
 
 **If `Send an HTTP request to SharePoint` is blocked**, the fallback is `Apply to each` with
 `Update item`, concurrency 4–8, and `varThreshold` lowered to about 300. Record the change in
@@ -196,6 +210,23 @@ top to bottom works. Two departures worth making:
 ## 6. Test plan
 
 In order. Each test is written so a failure tells you which assumption was wrong.
+
+### Test 0 — the sensitivity label. Do this before anything else.
+
+Five minutes, and it decides whether the rest of the design is buildable.
+
+1. A throwaway flow: `Get file content using path` on
+   `/Shared Documents/SIMRI Templates/Template Approved SIM Request.xlsx`
+2. → `Create file` into `/SIM Exports/Files`
+3. → Excel Online **Run script** against the copy, running anything trivial
+
+**If the script runs**, the label is metadata-only and everything in `03` works. Note that the
+output file inherits the label, which is fine and probably desirable.
+
+**If the script fails** with a permissions or format error, the label applies encryption. Stop.
+The chunked-write design cannot work as specified, and the fix is an Information Security
+conversation about an exemption for the flow's service account. `12_Template_Files.md` has the
+detail. Discovering this after building 130 actions is the avoidable version of a bad week.
 
 ### Wiring
 
@@ -354,8 +385,11 @@ manual version is for the runs that never reached the catch scope at all.
 - [ ] `00` open items O1, O2, O3 are closed and `typeMap` matches the real choice values
 - [ ] O4 — external transfer of employee data — has an answer from Data Protection, in writing
 - [ ] `varThreshold` has been set from measured timings, not from 2000 being a round number
+- [ ] Test 0 passed — the sensitivity label does not block the Run script action
+- [ ] The sensitivity label question in `09` §3a has an answer: either the handover template is
+      relabelled for controlled external sharing, or the deviation is accepted in writing
 - [ ] The handover template has been through `06` §7: no web-extension reference, no personal
-      document properties, no sample rows, correct filename
+      document properties, no sample rows
 - [ ] The connection identity is a service account and is documented
 - [ ] One local admin who was not involved in building this has run an export start to finish
       without being told how

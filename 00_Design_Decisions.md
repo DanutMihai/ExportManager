@@ -16,6 +16,7 @@ presents one of these as still open, this file wins.
 | 02 | `02_Export_Log.md` | the log list schema and the exact field values |
 | 04 | `04_Order_List_Schema.md` | source column names and the handover mapping |
 | 11 | `11_Country_Matrix_Schema.md` | each country's config and its local admins — the authorisation source |
+| 12 | `12_Template_Files.md` | where the two templates really are, and the sensitivity label on both |
 | 06 | `06_Handover_Template_Spec.md` | what the provider workbook must contain |
 | — | `BuildRequestSheets.ts` | the Office Script the flow calls |
 | 07 | `07_Flow_Diagram.html` | the same flow as a clickable tree, for orientation |
@@ -34,8 +35,8 @@ presents one of these as still open, this file wins.
 | Inventory list | Global SIM Inventory · `6b659861-abd0-4e45-b74e-63e3f69f2648` |
 | Order list | Global Order List · `e390b86b-13bb-4655-b3e6-efd5bd068279` |
 | Country config | SIMRI Country Matrix · `29bf3303-c195-474f-9146-e25d9f0d1b77` |
-| Inventory template | `/Documents/SIM_Inventory_TEMPLATE.xlsx` (rename of `SIM_Data_Validation_DEMO.xlsx`) |
-| Requests template | `/Documents/SIM_Request_Handover_TEMPLATE.xlsx` |
+| Inventory template | `/Shared Documents/SIMRI Templates/Update_Inventory_tetemplate.xlsx` |
+| Requests template | `/Shared Documents/SIMRI Templates/Template Approved SIM Request.xlsx` |
 | Output library | `/SIM Exports/Files` |
 | Log list | SIM Export Log |
 

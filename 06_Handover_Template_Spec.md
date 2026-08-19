@@ -1,8 +1,16 @@
-# SIM_Request_Handover_TEMPLATE.xlsx — build spec
+# `Template Approved SIM Request.xlsx` — handover template spec
 
-What the workbook must contain before `BuildRequestSheets.ts` can write to it. Written after
-reading `SIM_Data_Validation_DEMO.xlsx`, because most of this is "do what the inventory template
-already does" — that file solved these problems well and the solutions transfer.
+What the workbook must contain before `BuildRequestSheets.ts` can write to it.
+
+**The file already exists**, at
+`/Shared Documents/SIMRI Templates/Template Approved SIM Request.xlsx` — see `12_Template_Files.md`
+for its real metadata. So this document describes work to apply **to it**, not a workbook to build
+from nothing. What is in it today is unknown; `assertTemplate()` on the first three-row export
+reports every gap at once, which is faster and more reliable than auditing it by hand.
+
+Written after reading `SIM_Data_Validation_DEMO.xlsx` — the validation-design reference in this
+folder — because most of this is "do what that file already does". It solved these problems well
+and the solutions transfer.
 
 **Scope confirmed:** one provider per country, so one workbook per export. The `Provider` column
 stays in the identity block as a confirmation for the recipient, not as a grouping key. If that
@@ -49,7 +57,16 @@ have no idea what they're running. Keep it.
 
 ---
 
-## Three problems in the inventory template, worth fixing in both
+## Three problems found in `SIM_Data_Validation_DEMO.xlsx` — verify them against the real file first
+
+> **Attribution correction.** These three were found in `SIM_Data_Validation_DEMO.xlsx`, which is
+> the **validation-design reference** in this working folder — not the production template. The file
+> the Inventory export actually writes 60,000 rows into is
+> `/Shared Documents/SIMRI Templates/Update_Inventory_tetemplate.xlsx` (`12_Template_Files.md`).
+>
+> Check each one against *that* file before acting on it. The row-1966 cap is the one that matters
+> at volume, and it is entirely possible the production template already fixed it — or never had
+> the problem. The requirements they imply for the **handover** template stand regardless.
 
 ### 1. Validation and conditional formatting stop at row 1966
 
@@ -344,8 +361,13 @@ File → Info → Check for Issues → Inspect Document → remove personal info
 and a grey notes column, so a different copy may still have them. Worth confirming on whichever
 file is actually in `/Documents`.
 
-**Rename the file.** `SIM_Data_Validation_DEMO.xlsx` is a production dependency of a flow. The
-word DEMO in the name invites exactly one kind of accident.
+**Check the sensitivity label.** `Template Approved SIM Request.xlsx` carries **For internal use
+only**, and it goes to an external provider. `09` §3a has the decision to make; `12` has the
+technical half — whether the label encrypts, which would stop the script from opening the file at
+all.
+
+*(An earlier version of this section said to rename `SIM_Data_Validation_DEMO.xlsx` because it is a
+production dependency. It is not — it is a design reference. See `12_Template_Files.md`.)*
 
 ---
 

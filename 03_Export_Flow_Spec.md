@@ -40,22 +40,30 @@ expressions. Where an expression needs one, it is written as
 | `simri_OrderListId` | `e390b86b-13bb-4655-b3e6-efd5bd068279` |
 | `simri_CountryMatrixId` | `29bf3303-c195-474f-9146-e25d9f0d1b77` |
 | `simri_ExportLibrary` | `/SIM Exports/Files` |
-| `simri_InventoryTemplate` | `/Documents/SIM_Inventory_TEMPLATE.xlsx` |
-| `simri_HandoverTemplate` | `/Documents/SIM_Request_Handover_TEMPLATE.xlsx` |
+| `simri_InventoryTemplate` | `/Shared Documents/SIMRI Templates/Update_Inventory_tetemplate.xlsx` |
+| `simri_HandoverTemplate` | `/Shared Documents/SIMRI Templates/Template Approved SIM Request.xlsx` |
 | `simri_FlowEnvironmentId` | the Power Platform environment GUID, for the run URL |
 | `simri_SupportEmail` | where failure digests go |
 
 Companion documents: log schema `02_Export_Log.md` · source columns `04_Order_List_Schema.md` ·
-country config and admins `11_Country_Matrix_Schema.md` · handover template
-`06_Handover_Template_Spec.md` · script `BuildRequestSheets.ts` · data protection
-`09_Compliance_and_Data_Protection.md` · build and test `08_Build_Checklist.md`.
+country config and admins `11_Country_Matrix_Schema.md` · template files and their real metadata
+`12_Template_Files.md` · handover template `06_Handover_Template_Spec.md` · script
+`BuildRequestSheets.ts` · data protection `09_Compliance_and_Data_Protection.md` · build and test
+`08_Build_Checklist.md`.
 
-> **Rename the inventory template before you start.** It is currently
-> `SIM_Data_Validation_DEMO.xlsx`. A file with `DEMO` in the name is a production dependency of
-> this flow and will eventually be "cleaned up" by someone who reads the filename literally.
-> Rename it, keep the demo copy with its sample rows somewhere separate, and check first whether
-> anything links to the old name — admins may have bookmarked it as the upload template for the
-> import process.
+> **The library is called *Documents* but its URL is *Shared Documents*.** Both template paths above
+> use the URL form, which is what every path-based connector action needs. This is the exact trap
+> §11.3 warns about when it says to take URLs from the connector rather than building them — and
+> earlier drafts of this spec had `/Documents/…`, which fails with a file-not-found that reads like
+> a permissions problem.
+
+> **Both templates already exist**, in `/Shared Documents/SIMRI Templates/`. Real metadata,
+> identifiers and drive IDs are in `12_Template_Files.md`. Two things from it that change what you
+> do: the inventory template's filename contains a typo — `tetemplate`, not `template` — and **both
+> files carry the sensitivity label "For internal use only"**, which every workbook this flow
+> produces will inherit. If that label applies encryption, the Excel Run script action cannot open
+> the file and the chunked-write design does not work at all. **Test that before you build
+> anything else** — `08` §6 test 0.
 
 ---
 

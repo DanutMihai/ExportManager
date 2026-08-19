@@ -129,6 +129,43 @@ becomes a build requirement rather than a process one.
 
 ---
 
+## 3a. The sensitivity label says "For internal use only"
+
+Both templates carry the Microsoft Purview label **For internal use only**
+(`af1741f6-9e47-426e-a683-937c37d4ebc5`), and a file created from a labelled template **inherits
+the label**. So every workbook this flow produces is labelled that way — including the Requests
+workbook, which is designed to be forwarded to a supplier.
+
+On the face of it that is a contradiction, and it is one a reviewer will spot immediately. It needs
+an answer before go-live, and only one of the three possible answers requires no work:
+
+| If the label is… | Then… | Action |
+|---|---|---|
+| **Advisory / visual marking only**, and sending labelled files to contracted suppliers is accepted practice | nothing technically breaks | record the deviation here, naming who accepted it. Do not leave it implicit |
+| **Enforced by a DLP rule** blocking external sharing | the admin's send fails — possibly silently from their point of view — and the handover process does not work at all | the process needs an exception, or the label needs to change |
+| **Wrong for this file** | the Requests workbook should carry a label permitting controlled external sharing, while the Inventory export legitimately keeps "For internal use only" | relabel `Template Approved SIM Request.xlsx`; every copy inherits correctly from then on |
+
+**The third is most likely right, and it is cheapest now.** Relabelling one template is a
+five-minute change today. Doing it after providers have been receiving files for a month means
+re-sending everything already sent, and explaining why the first batch was labelled incorrectly.
+
+Note also that the two exports genuinely have different classifications, which is an argument for
+two different labels rather than one:
+
+- **Inventory export** — stays inside the bank, goes to the admin who asked for it. "For internal
+  use only" is exactly right.
+- **Requests export** — leaves the bank by design, to a contracted third party, under whatever
+  agreement §3 establishes. A label that says "internal only" describes it incorrectly.
+
+`12_Template_Files.md` covers the separate, technical half of this: whether the label applies
+**encryption**, which would stop the Excel Run script action from opening the file and break the
+build rather than the policy. That is `08` §6 test 0 and it comes first.
+
+**`00` open item O4 does not close until this section has an answer**, alongside the external
+transfer questions in §3.
+
+---
+
 ## 4. Audit trail — what you can prove afterwards
 
 For any export, from the SIM Export Log alone:
@@ -180,6 +217,10 @@ app sharing is itself managed.
 
 §3. Accepted by design, because the admin-forwards-it model was a deliberate choice. Mitigate
 through process and contract, not through this flow.
+
+Related and currently unresolved: the file carries a label that says it should not leave the bank
+at all (§3a). Until that is settled, "uncontrolled after download" understates it — the send may
+be blocked outright, or may be a policy breach, depending on how the label is configured.
 
 ### R3 — Provider-side data quality cannot be enforced
 
