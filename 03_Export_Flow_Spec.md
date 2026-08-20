@@ -796,13 +796,118 @@ runs.
 
 ### 11.4 `Switch shape` — Switch on `variables('varExportType')`
 
-**Case `Inventory`:** `Shape inventory` (Select over `variables('varItems')`, producing the 20
-writable columns of `Table_query`), then **`Set varShaped inventory`** = `body('Shape_inventory')`.
+**Case `Inventory`:** `Shape inventory` — Data Operation **Select**, then
+**`Set varShaped inventory`** = `body('Shape_inventory')`.
 
-The template's writable columns are **not contiguous**: A–S plus **U (IMEI)**. Column T and V–AC
-hold the check formulas (`IsPhoneValid`, `PhoneClean`, `ICC_Check`, `IMEI_Check`, `Date_Check`,
-`Status_Check`, `SIMType_Check`, `RowErrors`, `HasError`) and must be left alone — that is what
-`CopyRowsIntoTable`'s `repairFormulas: true` and `columnsCsv` are for.
+**From:** `variables('varItems')` · **Map:** the twenty key/value pairs below. Entered in the
+normal two-column grid, or pasted whole after switching the map to code view.
+
+```json
+{
+  "FirstName":    "@{item()?['FirstName']}",
+  "LastName":     "@{item()?['LastName']}",
+  "PhoneNr":      "@{item()?['PhoneNr']}",
+  "Plan":         "@{item()?['Plan']}",
+  "ICC_ID":       "@{item()?['ICC_ID']}",
+  "GD_ID":        "@{item()?['GD_ID']}",
+  "StartDate":    "@{item()?['StartDate']}",
+  "SIM_Country":  "@{item()?['SIM_Country']}",
+  "Provider":     "@{item()?['Provider']}",
+  "CostCenter":   "@{item()?['CostCenter']}",
+  "UBR_Code":     "@{item()?['UBR_Code']}",
+  "Legal entity": "@{item()?['Legalentity']}",
+  "IsVR":         "@{if(item()?['IsVR'],'Yes','No')}",
+  "BAN":          "@{item()?['BAN']}",
+  "SOC":          "@{item()?['SOC']}",
+  "Status":       "@{item()?['Status']?['Value']}",
+  "SIM Type":     "@{item()?['SIMType']?['Value']}",
+  "Email":        "@{item()?['Email']}",
+  "ID":           "@{item()?['ID']}",
+  "IMEI":         "@{item()?['IMEI']}"
+}
+```
+
+**The key is the Excel header; the value reads the SharePoint internal name** — and on four of them
+those two differ, which is the whole reason this has to be written out rather than described.
+
+#### Why each awkward one is the way it is
+
+**`CopyRowsIntoTable` matches payload keys to table headers by `header.toLowerCase()` and nothing
+else.** It does not strip spaces or underscores. So:
+
+- **`"Legal entity"` keeps its space**, and reads internal name `Legalentity`, which has none.
+- **`"SIM Type"` keeps its space**, and reads internal name `SIMType`.
+
+> **This is a different rule from `BuildRequestSheets`**, which normalises to lowercase
+> alphanumerics only — that is how `Current ICCID` matches `currentIccid` on the Requests side. Two
+> scripts, two matching conventions. Using the Requests convention here (`"legalentity"`,
+> `"simtype"`) gives you a workbook with two silently empty columns and no error anywhere.
+
+**`Status` and `SIM Type` are Choice columns** → `?['Value']`. Without it the cell reads
+`[object Object]`.
+
+**`IsVR` is a Boolean** → `Yes` / `No`, not `true`/`false`. This file goes back through the import,
+and `ValidateAndMatchImport`'s Boolean conversion accepts `true`, `yes`, `1` and `y`
+case-insensitively — so `Yes` round-trips correctly *and* reads properly to a human. Checked
+against the script, not assumed.
+
+**`ID` is not optional, and it is the most important key in the map.**
+
+The inventory template is the same file admins fill and **upload back** through the import flow,
+whose matching rules (`../SIM Inventory/Import_Flow_Spec.md`) are:
+
+- `ID` present and found → **update** that item
+- `ID` present and not found → **failed**; it never falls through to create
+- **no `ID`** → match on `ICC_ID` + normalised `PhoneNr`; no match → **create**
+
+So an export that leaves `ID` blank produces a file where any row whose ICCID or phone number was
+edited **creates a duplicate inventory item on re-upload** instead of updating the original.
+Populating it is what makes export → edit → import a round trip rather than a duplication machine.
+
+#### `columnsCsv` for the Run script action
+
+The same twenty, comma-separated, in header order:
+
+```
+FirstName,LastName,PhoneNr,Plan,ICC_ID,GD_ID,StartDate,SIM_Country,Provider,CostCenter,UBR_Code,Legal entity,IsVR,BAN,SOC,Status,SIM Type,Email,ID,IMEI
+```
+
+Pass it explicitly rather than letting the script infer keys from the rows. It matters on one edge:
+a chunk that legitimately contains zero rows has no keys to infer from, and `columnsCsv` is what
+tells the script which columns would have been safe to clear.
+
+#### The columns the script must never touch
+
+`Table_query` is **`A1:AB`** — 28 columns. The writable twenty are **A–S plus U (IMEI)**; the eight
+formula columns are **T** and **V–AB**:
+
+| Col | Header | What it checks |
+|---|---|---|
+| T | `IsPhoneValid` | dial code against `tblCountries[DialCode]`, matched on `SIM_Country` |
+| V | `PhoneClean` | the normalised number |
+| W | `ICC_Check` | digits only, starts `89`, length 18–22, Luhn, numeric-cell hard error |
+| X | `IMEI_Check` | |
+| Y | `Date_Check` | |
+| Z | `Status_Check` | against `Config!G` |
+| AA | `SIMType_Check` | against `Config!H` |
+| AB | `RowErrors` | the concatenation a human actually reads |
+
+They are protected automatically — any header **not** in `columnsCsv` is left alone — and
+`repairFormulas: true` fills them down from row 2 after each write. Both behaviours already exist
+in `CopyRowsIntoTable`; you are configuring them, not building them.
+
+> **Two things to verify against the production template before the first run.** The list above was
+> read from `SIM_Data_Validation_DEMO.xlsx`; the file the flow writes into is
+> `Update_Inventory_tetemplate.xlsx` (`12_Template_Files.md`), which is later and larger.
+>
+> 1. **The header row.** A header differing by one space exports that column empty and errors
+>    nowhere. Open row 1 and compare.
+> 2. **Whether `HasError` exists at all.** It does **not** exist in the DEMO file — that table ends
+>    at `AB` / `RowErrors`, and the workbook contains no defined names, no `Config!J2`, and no
+>    `UploadGate`. §13 of this spec is written against a `HasError` column and an `UploadGate` named
+>    range that may only exist in the production template. **If they are not there either, §13
+>    cannot be built as written** — drop it, or add the two cells first. It is optional
+>    reporting, so this blocks nothing else.
 
 **Case `Requests`:** `Shape requests` (Select over `variables('varItems')`), then
 **`Set varShaped requests`** = `body('Shape_requests')`. Two differently-named `Set` actions again,
