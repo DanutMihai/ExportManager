@@ -256,6 +256,7 @@ const FLOW = [
        ['String (empty)','varCountryOData · varActionedByOData · varExportType · varFileName · varFileUrl · varDownloadUrl · varShareUrl · varSheetBreakdown · varMessage · varNotes · varStampUtc · varSkippedReport'],
        ['Array','varItems = []  ·  varShaped = []'],
        ['Retry / Timeout',NO_RETRY],
+       ['Scope — §2.1','EVERY variable is initialised HERE, before Scope - Main. Variables are flow-scoped, not container-scoped: a value appended inside Do until > Switch script > case Requests is readable from Switch finalize, from Scope - Catch, from anywhere. Nothing is ever "out of scope", and an unwritten variable reads back as its initial value ((empty), 0, false, [], {}) — never as an error.'],
        ['Why Integer not Compose','A Compose holding 2000 stores the STRING "2000", and add/greater/lessOrEquals throw on a string operand','warn']
      ]}),
 
@@ -952,7 +953,8 @@ const FLOW = [
              A('Set varNotes requests','Variable','var',
                {note:'Skipped counts and reasons come from the ACCUMULATED variables, not from Parse build result — that one only knows the last chunk. unfilledHeaders and breakdownText legitimately come from it, because the script derives both from the whole workbook.',
                 cfg:[['Name','varNotes'],
-                     ['Value',"concat(\n  if(greater(variables('varRowsSkipped'),0),\n     concat(variables('varRowsSkipped'), ' request(s) were NOT sent: ', variables('varSkippedReport'), '| '), ''),\n  if(greater(length(body('Parse_build_result')?['unfilledHeaders']),0),\n     concat('Columns left empty: ', join(body('Parse_build_result')?['unfilledHeaders'], ', '), ' | '), ''),\n  'Written: ', body('Parse_build_result')?['breakdownText'])"]]})]}
+                     ['Value',"concat(\n  if(greater(variables('varRowsSkipped'),0),\n     concat(variables('varRowsSkipped'), ' request(s) were NOT sent: ', variables('varSkippedReport'), '| '), ''),\n  if(greater(length(body('Parse_build_result')?['unfilledHeaders']),0),\n     concat('Columns left empty: ', join(body('Parse_build_result')?['unfilledHeaders'], ', '), ' | '), ''),\n  'Written: ', body('Parse_build_result')?['breakdownText'])"],
+                     ['Is varSkippedReport in scope here?','Yes. Initialised at root (§2) like every variable, so it always holds at least (empty). And always written on this path: the Do until is do-while (body runs before the exit condition is evaluated) and §11 is only reached when the §10.5 probe count > 0, so Append varSkippedReport runs at least once — appending (empty) when that chunk skipped nothing. See §2.1.']]})]}
          ]},
 
         {k:'if', name:'Nothing was written', sec:'§11.7a',

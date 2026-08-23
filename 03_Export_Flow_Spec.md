@@ -196,6 +196,30 @@ Thirty-three variables. Five carry the weight of a defect that cost real debuggi
   filter is escaped once, here, rather than escaped inline at four call sites where one will
   eventually be missed.
 
+### 2.1 Variable scope — read this once and stop worrying about it
+
+**Every variable in this flow is initialised here, at root level, before `Scope - Main` runs.
+There is no other `Initialize variable` anywhere in the flow.** That is not a style preference —
+Power Automate rejects `Initialize variable` inside a Scope, a Switch case, a Condition branch or
+a loop, so it is the only place they can be.
+
+Two consequences follow, and both come up while building §10–§16:
+
+- **Variables are flow-scoped, not container-scoped.** A variable set or appended inside
+  `Do until → Switch script → case Requests` is fully readable from `Switch finalize → case
+  Requests`, from `Scope - Catch`, and from anywhere else in the run. Nothing is "out of scope"
+  because of where it was written. If you find yourself asking *"is this variable in scope here?"*
+  the answer is always yes.
+- **A variable never reaches a read uninitialised.** Worst case it still holds the initial value
+  from the table above — `''`, `0`, `false`, `[]`, `{}`. So a read on a branch where the write
+  never happened returns the initial value, not an error. `varSkippedReport` on a run with no
+  skipped requests is `''`; `varStampedCount` when §12 never ran is `0`.
+
+The one thing to check when reading an accumulated variable is not scope but **whether the write
+ran at least once**, and — where a partly-accumulated value would be misleading — whether the read
+is guarded. §11.7 guards on `greater(variables('varRowsSkipped'),0)` before it reads
+`varSkippedReport` for exactly that reason.
+
 ---
 
 ## 3. `Set varExportType` — canonicalise and validate in one expression
@@ -1116,6 +1140,15 @@ The skipped count and list come from the **accumulated** variables, not from
 `Parse_build_result` — that one only knows about the last chunk. `unfilledHeaders` and
 `breakdownText` legitimately come from it, because the script derives both from the whole
 workbook.
+
+> **"Is `varSkippedReport` initialised and reachable here?"** Yes, on both counts — see §2.1.
+> It is initialised at root (§2) like every other variable, so it always holds at least `''`.
+> And it is always written before this point on the Requests path: the `Do until` in §11.5 is
+> **do-while** — the body executes before the exit condition is ever evaluated — and §11 is only
+> reached when the probe count in §10.5 was greater than zero, so `varShaped` is non-empty and
+> the loop runs at least one full chunk. `Append varSkippedReport` therefore runs at least once,
+> appending `''` when that chunk skipped nothing. The `greater(variables('varRowsSkipped'),0)`
+> guard above means the value is only read when there was actually something to report.
 
 **Unmapped and incomplete rows are reported, not shipped.** v1 put them in tabs inside the workbook
 the provider receives — a provider opening `Needs attention` either actions those requests anyway
