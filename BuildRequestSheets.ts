@@ -63,6 +63,16 @@
  *     A resized table contains rows that have not been written yet, so
  *     getRowCount() is not the number of requests in the sheet.
  *
+ *  7. THE FINAL CHUNK RETURNS `writtenIds` — every RequestID actually in the
+ *     workbook, read back from the sheets.
+ *
+ *     This is what the flow stamps (03 §12). It replaces an earlier design where
+ *     the flow accumulated `skippedIds` across chunks and stamped "everything
+ *     shaped, minus everything skipped". That worked, but it is a DERIVED answer:
+ *     if the skip reporting ever misses a case, the flow stamps a request the
+ *     provider never received, and that request never appears in another export.
+ *     Reading back what is in the file cannot drift the same way.
+ *
  * ---------------------------------------------------------------------------
  * TWO THINGS THAT HAVE NOT CHANGED, AND SHOULD NOT
  * ---------------------------------------------------------------------------
@@ -200,12 +210,18 @@ function main(workbook: ExcelScript.Workbook, payloadJson: string): string {
   const breakdown: BreakdownEntry[] = [];
   let cumulativeRows: number = 0;
 
+  // writtenIds is the definitive answer to "what is actually in this file", read
+  // back from the workbook rather than inferred by the flow. On the final chunk
+  // it is what §12 stamps. See the note at the top of this file.
+  const writtenIds: string[] = [];
+
   for (const entry of p.typeMap) {
     const table: ExcelScript.Table = workbook.getTable(entry.table);
     if (!table) {
       continue;
     }
-    const filled: number = countFilled(table, rowKeyHeader);
+    const ids: string[] = collectFilled(table, rowKeyHeader);
+    const filled: number = ids.length;
 
     if (finalize && filled === 0) {
       // A provider opening five tabs where two have data assumes the empty ones
@@ -220,6 +236,9 @@ function main(workbook: ExcelScript.Workbook, payloadJson: string): string {
     if (filled > 0) {
       breakdown.push({ sheet: entry.sheet, rows: filled });
       cumulativeRows += filled;
+      if (finalize) {
+        for (const id of ids) { writtenIds.push(id); }
+      }
     }
   }
 
@@ -245,6 +264,7 @@ function main(workbook: ExcelScript.Workbook, payloadJson: string): string {
     breakdownText: breakdownText === "" ? "No rows written" : breakdownText,
     skippedIds: skipped.map((s) => s.id),
     skipped: skipped,
+    writtenIds: writtenIds,
     unfilledHeaders: unfilledHeaders,
     finalized: finalize
   });
@@ -321,7 +341,7 @@ function writeBucket(
     );
   }
 
-  const existing: number = countFilled(table, rowKeyHeader);
+  const existing: number = collectFilled(table, rowKeyHeader).length;
   const needed: number = existing + rows.length;
   resizeTable(table, needed);
 
@@ -425,12 +445,18 @@ function resizeTable(table: ExcelScript.Table, dataRows: number): void {
 }
 
 /**
- * How many real requests are in this table.
+ * The RequestIDs actually present in this table.
  *
  * Not getRowCount(): a resized table carries rows that have not been written
  * yet, and the prototype row that ships with the template is one of them.
+ *
+ * The flow uses the finalize chunk's collected list as its stamp set, which is
+ * why this returns the values rather than a count. Stamping what the workbook
+ * contains is stronger than stamping "everything shaped, minus everything the
+ * script said it skipped" — the second is a derived answer, and it silently
+ * over-stamps if the skip reporting ever misses a case.
  */
-function countFilled(table: ExcelScript.Table, rowKeyHeader: string): number {
+function collectFilled(table: ExcelScript.Table, rowKeyHeader: string): string[] {
   const headers: string[] = headersOf(table);
   const target: string = norm(rowKeyHeader);
   let columnIndex: number = -1;
@@ -444,7 +470,8 @@ function countFilled(table: ExcelScript.Table, rowKeyHeader: string): number {
     );
   }
   const rowCount: number = table.getRowCount();
-  if (rowCount < 1) { return 0; }
+  const out: string[] = [];
+  if (rowCount < 1) { return out; }
 
   const range: ExcelScript.Range = table.getRange();
   const values: (string | number | boolean)[][] = table
@@ -452,11 +479,11 @@ function countFilled(table: ExcelScript.Table, rowKeyHeader: string): number {
     .getRangeByIndexes(range.getRowIndex() + 1, range.getColumnIndex() + columnIndex, rowCount, 1)
     .getValues();
 
-  let filled: number = 0;
   for (const row of values) {
-    if (asText(row[0]) !== "") { filled++; }
+    const id: string = asText(row[0]);
+    if (id !== "") { out.push(id); }
   }
-  return filled;
+  return out;
 }
 
 /* ==========================================================================
@@ -506,7 +533,7 @@ function assertTemplate(
       problems.push("'" + entry.sheet + "' has no '" + rowKeyHeader + "' column");
     }
 
-    const filled: number = countFilled(table, rowKeyHeader);
+    const filled: number = collectFilled(table, rowKeyHeader).length;
     if (filled !== 0) {
       problems.push(
         "'" + entry.sheet + "' prototype row already holds a " + rowKeyHeader +

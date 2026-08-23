@@ -165,7 +165,7 @@ Root level only — Power Automate rejects `Initialize variable` inside a Scope 
 | `varDownloadUrl` | String | *(empty)* |
 | `varShareUrl` | String | *(empty)* |
 | `varRowsExported` | Integer | `0` |
-| `varRowsSkipped` | Integer | `0` |
+| `varRowsSkipped` | Integer | `0` — **incremented per chunk**, not set once |
 | `varSheetBreakdown` | String | *(empty)* |
 | `varMessage` | String | *(empty)* |
 | `varNotes` | String | *(empty)* |
@@ -178,7 +178,7 @@ Root level only — Power Automate rejects `Initialize variable` inside a Scope 
 | `varShaped` | Array | `[]` |
 | `varChunkOffset` | Integer | `0` |
 | `varBuildResult` | String | `{}` |
-| `varSkippedIds` | Array | `[]` |
+| `varSkippedReport` | String | *(empty — appended per chunk in §11.5)* |
 | `varStampUtc` | String | *(empty — set once in §12.2)* |
 | `varStampOffset` | Integer | `0` |
 | `varStampedCount` | Integer | `0` |
@@ -946,10 +946,11 @@ Six notes, each of which produces a broken workbook if missed:
   optional.** Without them a Choice serialises as an object and lands in the sheet as
   `[object Object]`.
 - **`VRCompatible` is a real Boolean**, so `true`/`false` reaches the provider unless converted.
-- **`requestId` is a string** here, because `@{…}` interpolation coerces to text. That is
-  deliberate and it must stay that way: §12.3 compares it against `varSkippedIds`, which the
-  script produces as strings, and `contains()` does not match `"1201"` against `1201`. If someone
-  "improves" this to `int(item()?['ID'])`, stamping silently stops excluding skipped rows.
+- **`requestId` is a string** here, because `@{…}` interpolation coerces to text, and it must stay
+  that way. It becomes the `RequestID` column in the workbook, the script reads it back as
+  `writtenIds` (§12.3), and those values go straight into the `$batch` PATCH URLs. Changing it to
+  `int(item()?['ID'])` would put a number in a Text-formatted column, which is the one thing `06`
+  spends a page telling you not to do.
 - **`country` is new in v3.** `06` §4's `IsPhoneValid` check compares a number's prefix against
   `tblCountries[DialCode]` matched on a country column, and the handover sheets have no country of
   their own — there is one country per file. A hidden `Country` column on each sheet, populated
@@ -1021,7 +1022,36 @@ chunk overshoots and the loop's own accounting disagrees with §11.6's assertion
 | `Compose requests payload` | §17 |
 | `Run BuildRequestSheets` | File `body('Create_export_file')?['{Identifier}']` · `payloadJson` `@{outputs('Compose_requests_payload')}`. **Retry policy: None.** |
 | `Set varBuildResult` | `body('Run_BuildRequestSheets')?['result']` |
-| `Set varSkippedIds` | `union(variables('varSkippedIds'), json(body('Run_BuildRequestSheets')?['result'])?['skippedIds'])` |
+| `Parse chunk result` | Parse JSON over `json(body('Run_BuildRequestSheets')?['result'])`, schema in §17 |
+| `Increment varRowsSkipped` | **Increment variable** · `length(body('Parse_chunk_result')?['skipped'])` |
+| `Append varSkippedReport` | **Append to string variable**, expression below |
+
+**`Append varSkippedReport`:**
+
+```
+@{if(greater(length(body('Parse_chunk_result')?['skipped']),0),
+     concat(string(body('Parse_chunk_result')?['skipped']), ' '),
+     '')}
+```
+
+#### Why these two accumulate, and why they are not `Set variable`
+
+**Every per-chunk figure has to accumulate, or it reports only the last chunk.** §11.7 parses
+`varBuildResult`, which holds the *finalize* chunk's result. `cumulativeRows` and `breakdownText`
+are safe there because the script reads them back from the whole workbook — but `skipped` is
+per-chunk. An earlier draft of §11.7 set `varRowsSkipped` from it, which at 2,400 rows over five
+chunks reported the skips from chunk 5 and silently lost the other four chunks' worth.
+
+**`Increment variable` and `Append to string variable` are the purpose-built actions for this.**
+A `Set variable` whose value references its own variable does work in a sequential `Do until` — it
+is not the designer error people expect — but the documented hazard is real in an `Apply to each`
+with concurrency on, where parallel iterations share the variable and the result is undefined.
+Using the purpose-built actions means the pattern stays correct if this ever moves into a
+concurrent loop, and it matches `varNotes`, which already uses `Append to string variable`.
+
+**`varSkippedIds` is gone entirely.** It existed so §12.3 could stamp "everything shaped, minus
+everything skipped" — a derived answer. §12 now stamps `writtenIds`, read back from the workbook by
+the finalize chunk, which is the direct one. See §12.3.
 
 **Retry `None` on both, and this matters more than it looks.** Every connector action defaults to
 Exponential/4. If a script times out at 120 seconds *after* writing some rows, Power Automate
@@ -1029,8 +1059,8 @@ retries it and the script writes them again. The default retry policy turns a sl
 duplicated data. Keep Exponential/4 on the SharePoint reads and the log writes, where retrying is
 safe and useful.
 
-`varBuildResult` is overwritten every iteration; the last write — the finalize chunk — is the one
-§11.7 parses. `varSkippedIds` accumulates across chunks with `union`, which also de-duplicates.
+`varBuildResult` is overwritten every iteration — a plain replacement, not a self-reference — and
+the last write, from the finalize chunk, is the one §11.7 parses.
 
 ### 11.6 `Assert all rows written` — Condition
 
@@ -1066,18 +1096,26 @@ comment on it, so nobody "fixes" it six months from now.
 |---|---|
 | `Parse build result` | Parse JSON over `json(variables('varBuildResult'))`, schema in §17 |
 | `Set varRowsExported requests` | `body('Parse_build_result')?['cumulativeRows']` |
-| `Set varRowsSkipped requests` | `length(body('Parse_build_result')?['skipped'])` |
 | `Set varSheetBreakdown requests` | `body('Parse_build_result')?['breakdownText']` |
 | `Set varNotes requests` | expression below |
 
+**No `Set varRowsSkipped` here.** It was accumulated across every chunk in §11.5;
+`body('Parse_build_result')?['skipped']` holds only the finalize chunk's, and setting it from that
+loses every earlier chunk's skips.
+
 ```
 concat(
-  if(greater(length(body('Parse_build_result')?['skipped']),0),
-     concat(length(body('Parse_build_result')?['skipped']), ' request(s) were NOT sent: ', string(body('Parse_build_result')?['skipped']), ' | '), ''),
+  if(greater(variables('varRowsSkipped'),0),
+     concat(variables('varRowsSkipped'), ' request(s) were NOT sent: ', variables('varSkippedReport'), '| '), ''),
   if(greater(length(body('Parse_build_result')?['unfilledHeaders']),0),
      concat('Columns left empty: ', join(body('Parse_build_result')?['unfilledHeaders'], ', '), ' | '), ''),
   'Written: ', body('Parse_build_result')?['breakdownText'])
 ```
+
+The skipped count and list come from the **accumulated** variables, not from
+`Parse_build_result` — that one only knows about the last chunk. `unfilledHeaders` and
+`breakdownText` legitimately come from it, because the script derives both from the whole
+workbook.
 
 **Unmapped and incomplete rows are reported, not shipped.** v1 put them in tabs inside the workbook
 the provider receives — a provider opening `Needs attention` either actions those requests anyway
@@ -1184,33 +1222,42 @@ Set it **once**, here — not inside the loop. `utcNow()` in a loop drifts, and 
 handover should carry one timestamp. That is what makes "this batch went out together" answerable
 later, and it is what lets §16.6 identify exactly which rows this run stamped.
 
-### 12.3 `Filter array stampable`
-
-From `variables('varShaped')`, advanced condition:
+### 12.3 `Compose stamp ids`
 
 ```
-@not(contains(variables('varSkippedIds'), item()?['requestId']))
+body('Parse_build_result')?['writtenIds']
 ```
 
-Rows the script routed to unmapped or incomplete were never sent, so they must stay unstamped and
-be picked up by the next export.
+That is it. One Compose, no filtering.
 
-Both sides of this comparison are **strings** — `varSkippedIds` because the script emits
-`String(id)`, and `requestId` because `@{…}` interpolation coerces. `contains()` on an array is an
-exact match, so a type change on either side silently stops excluding anything.
+**`writtenIds` is every `RequestID` actually present in the workbook**, read back from the sheets
+by the finalize chunk (`BuildRequestSheets.ts`, note 7). It is already an array of strings, ready
+for §12.5 to chunk.
 
-### 12.4 `Select stamp ids`
+#### Why this replaced a Filter array
 
-From `body('Filter_array_stampable')`, map (text mode): `@{item()?['requestId']}`
+The previous design stamped `varShaped` **minus** an accumulated `varSkippedIds` — "everything we
+shaped, less everything the script told us it skipped". That is a *derived* answer, and it fails in
+one direction only: if the skip reporting ever misses a case, a request that never reached the
+provider gets stamped as sent, and it will never appear in another export. Nobody finds out until
+an employee asks where their SIM is.
+
+Reading back what is in the file cannot drift that way. If a row is in the workbook it gets
+stamped; if it is not, it does not. The two answers agree today — this is about which one stays
+correct when the script changes.
+
+It also removes an accumulated array variable, a `Filter array` and a `Select` from the flow, and
+with them the `contains()` string-versus-integer trap that the old §12.3 needed a paragraph to
+warn about.
 
 ### 12.5 `Do until stamp batches`
 
-**Condition:** `greaterOrEquals(variables('varStampOffset'), length(body('Select_stamp_ids')))`
+**Condition:** `greaterOrEquals(variables('varStampOffset'), length(outputs('Compose_stamp_ids')))`
 **Limits: Count `5000`, Timeout `PT1H`.**
 
 | # | Action | Value |
 |---|---|---|
-| a | `Compose stamp chunk` | `take(skip(body('Select_stamp_ids'), variables('varStampOffset')), variables('varBatchSize'))` |
+| a | `Compose stamp chunk` | `take(skip(outputs('Compose_stamp_ids'), variables('varStampOffset')), variables('varBatchSize'))` |
 | b | `Compose batch id` | `guid()` |
 | c | `Compose changeset id` | `guid()` |
 | d | `Select changeset parts` | map below |
@@ -1762,6 +1809,7 @@ A JSON string — dynamic keys can't be schema'd, same as the import script:
     { "id": "1201", "reason": "unmapped:Upgrade device" },
     { "id": "1355", "reason": "missing:phoneNr,newPlan" }
   ],
+  "writtenIds": ["1202", "1203", "1204"],
   "unfilledHeaders": ["New ICCID", "EffectiveDate", "ProviderNotes"],
   "finalized": true
 }
@@ -1782,13 +1830,21 @@ cannot drift.
   "breakdown": {"type":"array","items":{"type":"object","properties":{
       "sheet":{"type":"string"},"rows":{"type":"integer"}}}},
   "skippedIds": {"type":"array"},
+  "writtenIds": {"type":"array"},
   "skipped": {"type":"array","items":{"type":"object","properties":{
       "id":{"type":"string"},"reason":{"type":"string"}}}},
   "unfilledHeaders": {"type":"array","items":{"type":"string"}} } }
 ```
 
-Leave `skippedIds` untyped — an empty array with a declared item type is a common source of
-"expected array of object, got array" on runs where nothing was skipped.
+Leave `skippedIds` and `writtenIds` untyped — an empty array with a declared item type is a common
+source of "expected array of object, got array" on runs where nothing was skipped.
+
+**The same schema is used twice**: by `Parse chunk result` inside the loop (§11.5) and by
+`Parse build result` after it (§11.7). Two actions, one schema.
+
+**`writtenIds` is populated on the finalize chunk only** — every `RequestID` present in the
+workbook, read back from the sheets. Non-final chunks return it empty, which keeps their payloads
+small and is why §12.3 reads it from `Parse_build_result` rather than from the loop.
 
 ---
 
