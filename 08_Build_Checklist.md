@@ -189,7 +189,7 @@ OneDrive is a production dependency on that developer's account.
 |---|---|
 | `CopyRowsIntoTable` | existing, production, unchanged |
 | `BuildRequestSheets` | new — `BuildRequestSheets.ts` in this folder |
-| `ReadUploadGate` | new, small — `03` §13. Returns `{"gate":"OK\|BLOCKED","errorCount":n}` as a JSON string |
+| `ReadUploadGate` | new — **`ReadUploadGate.ts` in this folder**. `03` §13. Never throws: on any problem it returns `available:false` with a reason rather than a zero it did not measure |
 
 ---
 

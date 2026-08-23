@@ -1326,35 +1326,114 @@ the same, and a self-referencing `Set` has documented ordering hazards the appen
 
 ## 13. `Read upload gate` — free data-quality reporting
 
-Inventory only, inside a condition on `equals(variables('varExportType'),'Inventory')`, placed
-after §11.6 and before §11.7. The template already computes everything needed and v2's flow
-ignored it.
+Inventory only, inside a Condition on `equals(variables('varExportType'),'Inventory')`, placed
+after §11.6 and before §11.7. The template already computes everything needed and v2's flow ignored
+it. One script call turns every inventory export into a data-quality audit of that country's
+estate, using the Luhn checks, dial-code checks and date checks already built and tested.
 
-`Config!J2` is the named range **`UploadGate`**:
-`=IF(COUNTIF(Table_query[HasError],"ERROR")=0,"OK","BLOCKED")`, with `UploadGate_ErrorCount` at
-`J3`. Because both use structured references over `Table_query`, they cover every written row —
-unlike the conditional formatting, which stops at row 1966 (see `06_Handover_Template_Spec.md`).
+**Script: `ReadUploadGate.ts`, in this folder.** It never throws — see below.
 
-Add a small Office Script `ReadUploadGate` returning `{ "gate": "OK|BLOCKED", "errorCount": n }` as
-a JSON string, then:
+### What it reads, and why it looks in four places
 
-| Action | Setting |
-|---|---|
-| `Run ReadUploadGate` | Excel Run script · File `body('Create_export_file')?['{Identifier}']` · Retry **None** · *run after* on the next action includes **has failed** |
-| `Set varDataErrors` | `int(coalesce(json(body('Run_ReadUploadGate')?['result'])?['errorCount'], 0))` |
-| `Append varNotes data errors` | **Append to string variable** on `varNotes`, expression below |
+The intended source is a named range **`UploadGate`** at `Config!J2`
+(`=IF(COUNTIF(Table_query[HasError],"ERROR")=0,"OK","BLOCKED")`) with `UploadGate_ErrorCount` at
+`J3`. Both use structured references over `Table_query`, so they cover every written row — unlike
+the conditional formatting, which stops at row 1966 in the file `06` was written from.
+
+**That pair does not exist in `SIM_Data_Validation_DEMO.xlsx`** — that workbook has no defined
+names at all — and it is unconfirmed in `Update_Inventory_tetemplate.xlsx`, which is the file the
+flow writes into. So rather than depend on a cell that may not be there, the script degrades:
+
+| # | Source | `source` returns |
+|---|---|---|
+| 1 | named ranges `UploadGate` / `UploadGate_ErrorCount` | `namedRange` |
+| 2 | literal cells `Config!J2` / `Config!J3` | `cell:Config!J2` |
+| 3 | `Table_query[HasError]`, counting `ERROR` | `table:HasError` |
+| 4 | `Table_query[RowErrors]`, counting non-empty | `table:RowErrors` |
+
+**Read `source` on your first run** — it tells you what the production template actually contains.
+`table:RowErrors` means the gate cells are worth adding, but nothing is broken without them.
+
+### Returns
+
+```json
+{
+  "available": true,
+  "gate": "BLOCKED",
+  "errorCount": 47,
+  "rowCount": 12480,
+  "source": "table:HasError",
+  "sampleErrors": ["ICC_ID: Luhn check failed", "PhoneNr: dial code does not match Romania"],
+  "note": ""
+}
+```
+
+**`available` is the field that matters.** When the script cannot measure anything it returns
+`available: false`, `gate: "UNKNOWN"`, `errorCount: -1` and a `note` saying why. It never returns a
+zero it did not measure — "0 errors" and "could not check" are different facts and the log must not
+confuse them.
+
+`rowCount` counts rows carrying an identifier, not `getRowCount()`. `CopyRowsIntoTable` leaves
+`spareRows` blank inside the table so an admin can type below the data without falling out of it,
+which overstates the table's row count by up to 200.
+
+### Actions
+
+| # | Action | Setting |
+|---|---|---|
+| a | `Run ReadUploadGate` | Excel Online **Run script** · File `@{body('Create_export_file')?['{Identifier}']}` · Script `ReadUploadGate` · `forceRecalculate` **false** · Retry **None** |
+| b | `Parse gate result` | Parse JSON over `json(body('Run_ReadUploadGate')?['result'])`, schema below. *Run after:* **has succeeded** and **has failed** |
+| c | `Set varDataErrors` | `if(body('Parse_gate_result')?['available'], body('Parse_gate_result')?['errorCount'], -1)` · same run-after |
+| d | `Append varNotes data errors` | **Append to string variable** on `varNotes`, expression below · same run-after |
+
+**Leave `forceRecalculate` false.** `CopyRowsIntoTable` restores calculation to automatic and does
+a full rebuild on its last chunk, so the check columns are current by the time this runs. Set it
+true only if you ever pass `deferCalculationRestore` on that action, or if a test shows stale
+values — a full rebuild over 60,000 rows of array formulas is not cheap, and this shares the same
+120-second Run script budget as everything else.
+
+**`Parse gate result` schema:**
+
+```json
+{ "type": "object", "properties": {
+  "available": {"type":"boolean"}, "gate": {"type":"string"},
+  "errorCount": {"type":"integer"}, "rowCount": {"type":"integer"},
+  "source": {"type":"string"}, "note": {"type":"string"},
+  "sampleErrors": {"type":"array"} } }
+```
+
+Leave `sampleErrors` untyped, for the same reason `skippedIds` is untyped in §17 — an empty array
+with a declared item type throws on the runs where there is nothing to report.
+
+**`Append varNotes data errors`:**
 
 ```
-@{if(greater(variables('varDataErrors'),0),
-     concat(' | ', variables('varDataErrors'), ' exported row(s) fail validation — see the RowErrors column.'),
-     '')}
+@{if(not(body('Parse_gate_result')?['available']),
+     concat(' | Data-quality check unavailable: ', body('Parse_gate_result')?['note']),
+  if(greater(variables('varDataErrors'),0),
+     concat(' | ', variables('varDataErrors'), ' of ', body('Parse_gate_result')?['rowCount'],
+            ' exported row(s) fail validation — see the RowErrors column',
+            if(greater(length(body('Parse_gate_result')?['sampleErrors']),0),
+               concat('. For example: ', join(body('Parse_gate_result')?['sampleErrors'], ' · ')),
+               ''),
+            '.'),
+     ''))}
 ```
 
-This costs one script call and turns every inventory export into a data-quality audit of that
-country's estate, using the Luhn checks, dial-code checks and date checks already built and tested
-in the template. **Do not block on it** — the export is a read, and the admin may be exporting
-precisely because they want to see the bad rows. For the same reason it must not be able to fail
-the run: continue on failure and report zero.
+Three outcomes, three different notes: it could not check, it found problems and names a couple of
+them, or it found none and stays silent. A count on its own sends someone hunting; *"47 of 12,480
+rows fail validation — for example: ICC_ID: Luhn check failed"* does not.
+
+### It must not be able to fail the export
+
+Retry **None**, and every action after it continues on failure. **Do not block on the gate** — the
+export is a read, and the admin may be exporting precisely because they want to see the bad rows.
+Blocking would also make a reporting nicety capable of destroying a completed 60,000-row export,
+which is a bad trade in any direction.
+
+The script itself never throws for the same reason: on any problem it returns `available: false`
+with a reason rather than raising. The run-after settings are the second lock, for the case where
+the connector fails before the script runs at all.
 
 ---
 

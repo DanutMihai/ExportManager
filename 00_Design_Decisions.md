@@ -18,7 +18,8 @@ presents one of these as still open, this file wins.
 | 11 | `11_Country_Matrix_Schema.md` | each country's config and its local admins — the authorisation source |
 | 12 | `12_Template_Files.md` | where the two templates really are, and the sensitivity label on both |
 | 06 | `06_Handover_Template_Spec.md` | what the provider workbook must contain |
-| — | `BuildRequestSheets.ts` | the Office Script the flow calls |
+| — | `BuildRequestSheets.ts` | the Office Script that builds the provider workbook |
+| — | `ReadUploadGate.ts` | the Office Script that reads the inventory data-quality gate |
 | 07 | `07_Flow_Diagram.html` | the same flow as a clickable tree, for orientation |
 | 09 | `09_Compliance_and_Data_Protection.md` | what leaves the bank, and under what controls |
 | 01 | `01_Edge_Cases.md` | the scenarios each design choice defends against |
