@@ -11,35 +11,18 @@ to be a missing index.
 
 ## 1. SharePoint objects
 
-### 1.1 Global Order List — four new columns
+### 1.1 Global Order List — nothing to add
 
-Create with plain names, rename afterwards, then verify the internal names.
-
-| Create as | Rename to | Type |
-|---|---|---|
-| `ExportedOn` | ExportedOn | Date and Time |
-| `ExportRunId` | ExportRunId | Single line of text |
-| `EffectiveDate` | EffectiveDate | Single line of text |
-| `ProviderNotes` | ProviderNotes | Multiple lines, **plain text** |
-
-```
-_api/web/lists(guid'e390b86b-13bb-4655-b3e6-efd5bd068279')/fields?$select=InternalName,Title&$filter=Hidden eq false
-```
-
-**Check for `_x005f_` in the internal names.** SharePoint sometimes encodes an underscore
-depending on how the column was created, so `ExportRunId` can come back as `Export_x005f_RunId`.
-It writes nothing and errors nowhere — the same failure mode as `Request_x0020_Type`.
-
-`EffectiveDate` and `ProviderNotes` are for the **return leg**. This flow never writes them. They
-are created now because the handover template's columns must map to something, and adding them
-later means asking providers to switch format.
+Neither export path writes back to its source list, so there are no new columns to create here.
+(If `ExportedOn`, `ExportRunId`, `EffectiveDate` or `ProviderNotes` already exist on the Order List
+from earlier work, this flow simply doesn't read or write them.)
 
 ### 1.2 Indexes
 
 | List | Indexed columns |
 |---|---|
 | Global SIM Inventory | `SIM_Country` |
-| Global Order List | `CountryName`, `OrderStatus`, `ExportedOn` |
+| Global Order List | `CountryName`, `OrderStatus` |
 | SIM Export Log | `RunId`, `Status`, `Country`, `ExportType` |
 
 If a single country can exceed 5,000 rows in the Order List, add a **compound index** on
@@ -50,14 +33,14 @@ throttled regardless of what follows it.
 
 Full schema in `02_Export_Log.md`. Create it, verify internal names with the same query pattern,
 set permissions to **read for users, write for the flow's connection identity**, turn versioning
-**off**, and create the eight views listed there.
+**off**, and create the six views listed there.
 
-Check the `Status` choice column has all **eight** values: `Running`, `Invalid`, `Unauthorised`,
-`Blocked`, `No data`, `Queued`, `Completed`, `Failed`. SharePoint rejects a value that isn't in the
-list, and the flow writes all eight — a missing one fails `Update item` on exactly the path where
-the log matters most.
+Check the `Status` choice column has all **seven** values: `Running`, `Invalid`, `Unauthorised`,
+`No data`, `Queued`, `Completed`, `Failed`. SharePoint rejects a value that isn't in the list, and
+the flow writes all seven — a missing one fails `Update item` on exactly the path where the log
+matters most.
 
-`02_Export_Log.md` is the build reference for this list: nine write points, each with its complete
+`02_Export_Log.md` is the build reference for this list: seven write points, each with its complete
 field list, message expressions and Respond outputs.
 
 ### 1.4 SIMRI Country Matrix — nothing to build
@@ -93,12 +76,11 @@ empty and errors nowhere**.
 | View | On | Must contain |
 |---|---|---|
 | `FlowExport_Inventory` | Global SIM Inventory | `ID` plus the 20 writable columns of `Table_query` |
-| `FlowExport_Requests` | Global Order List | `ID`, `RequestType`, `GDID`, `Requestedfor`, `Provider`, `Ticket_ID`, `PhoneNr`, `ICCID`, `SIMType`, `newSimType`, `PlanName`, `NewPlan`, `VRCompatible`, `DeliveryAddress`, `Location`, `simInventoryID`, `TransferdTo`, `StartDate`, `ExportedOn` |
-| `FlowExport_Diagnostic` | Global Order List | `ID`, `RequestType`, `ExportedOn` |
+| `FlowExport_Requests` | Global Order List | `ID`, `RequestType`, `CountryName`, `GDID`, `Requestedfor`, `Provider`, `Ticket_ID`, `PhoneNr`, `ICCID`, `SIMType`, `newSimType`, `PlanName`, `NewPlan`, `VRCompatible`, `DeliveryAddress`, `Location`, `simInventoryID`, `TransferdTo`, `StartDate` |
 
 **`ID` in every one of them.** It is not returned automatically when column limiting is on.
-Without it `item()?['ID']` is null, which means a blank `RequestID` column in the provider's
-workbook and an empty stamp list — the export appears to work and prevents nothing.
+Without it `item()?['ID']` is null, which means a blank `RequestID` column in the export and a
+correct-looking file that's missing its one linking column.
 
 Note `FlowExport_Requests` deliberately excludes `WorkHistory`, `ApprovalPlanJson`,
 `Justification` and `LineManager`. The Select map is the primary allow-list; the view is the second
@@ -110,15 +92,15 @@ Create `/SIM Exports/Files` as a document library. Apply the retention policy fr
 same time, not later — retrofitting retention across a library of several thousand files is a
 different job.
 
-### 1.7 Templates — both already exist
+### 1.7 Templates
 
 In `/Shared Documents/SIMRI Templates/`. Full metadata, identifiers and drive IDs in
 `12_Template_Files.md`.
 
 | File | State | Action |
 |---|---|---|
-| `Update_Inventory_tetemplate.xlsx` | exists · 33.8 KB | Nothing to create. Verify `06`'s three criticisms against **this** file — they were derived from `SIM_Data_Validation_DEMO.xlsx`, which is a design reference, not this |
-| `Template Approved SIM Request.xlsx` | exists · 21.7 KB | Apply `06_Handover_Template_Spec.md` **to it**, then the pre-ship checks in `06` §7. `assertTemplate()` on the first run reports every gap at once — do not audit it by hand |
+| `Update_Inventory_tetemplate.xlsx` | exists · 33.8 KB | Nothing to create. |
+| `Requests_Export_Template.xlsx` | **needs building** | New file. One plain Excel Table (`Table_Requests`), headers matching `04_Order_List_Schema.md`'s nineteen-column map exactly, `ICCID` column formatted as Text (`@`) — same reason as the inventory template's `ICC_ID` column. No protection, no formula/check columns, no per-type sheets: this replaces the old five-sheet provider handover workbook entirely. Point `simri_HandoverTemplate` at it once built. |
 
 Three things to know before you touch either:
 
@@ -126,8 +108,9 @@ Three things to know before you touch either:
   action needs the URL form.
 - **The inventory filename has a typo** — `tetemplate`. Leave it or fix it deliberately; it serves
   the import flow as well, so a rename can break an admin's bookmarked upload template.
-- **Both carry the sensitivity label "For internal use only"**, and copies inherit it. See §3 and
-  §6 test 0 — this is the one prerequisite that can invalidate the design.
+- **The inventory template carries the sensitivity label "For internal use only"**, and copies
+  inherit it. See §3 and §6 test 0 — this is the one prerequisite that can invalidate the design.
+  Confirm what label the new Requests template needs before building it — `09` §3a.
 
 ---
 
@@ -145,14 +128,13 @@ value* per environment.
 | `simri_CountryMatrixId` | Text | `29bf3303-c195-474f-9146-e25d9f0d1b77` |
 | `simri_ExportLibrary` | Text | `/SIM Exports/Files` |
 | `simri_InventoryTemplate` | Text | `/Shared Documents/SIMRI Templates/Update_Inventory_tetemplate.xlsx` |
-| `simri_HandoverTemplate` | Text | `/Shared Documents/SIMRI Templates/Template Approved SIM Request.xlsx` |
+| `simri_HandoverTemplate` | Text | `/Shared Documents/SIMRI Templates/Requests_Export_Template.xlsx` |
 | `simri_FlowEnvironmentId` | Text | the Power Platform environment GUID from the maker portal URL |
 | `simri_SupportEmail` | Text | wherever the failure digest should land |
 
 **Why this is not optional at a bank.** A flow with a site URL typed into three expressions and a
-list GUID typed into a `$batch` body cannot be exported to UAT — someone edits it by hand, misses
-one, and a test run writes to production data. The list GUIDs in particular appear inside a
-composed HTTP body where no connector validation would catch a stale value.
+list GUID typed into a composed body cannot be exported to UAT — someone edits it by hand, misses
+one, and a test run writes to production data.
 
 If environment variables are not available to you, the minimum fallback is **one root-level Compose
 per value**, referenced everywhere, so there is exactly one place to change.
@@ -164,18 +146,12 @@ per value**, referenced everywhere, so there is exactly one place to change.
 | Check | Why |
 |---|---|
 | The flow's SharePoint connection runs as a **service account**, not a named person | when that person leaves, every export stops, and the log's audit trail suddenly attributes writes to a disabled account |
-| That account has **write** on `/SIM Exports/Files`, **write** on the Order List, **write** on SIM Export Log, **read** on both templates | least privilege; it does not need site collection admin |
+| That account has **write** on `/SIM Exports/Files`, **read** on both templates | least privilege; it does not need write on the Order List or site collection admin — neither export path writes back |
 | The Outlook connection's mailbox is documented | the async email's From address is the first thing an admin asks about |
-| `Send an HTTP request to SharePoint` is permitted by DLP | §12 stamping is built on it. It is blocked in some tenants as a high-privilege action |
 | SharePoint + Excel Online + Outlook are in the same DLP data group | a policy that separates them blocks the flow from saving at all, with an error that does not say so clearly |
 | Organisation-scoped sharing links are permitted | `03` §11.8. If not, the flow still works — it falls back to the download URL — but confirm before go-live rather than discovering it in the first failure |
-| **The "For internal use only" sensitivity label does not apply encryption** | both templates carry it and every output inherits it. An encrypting label stops `Get file content`, `Create file` and above all **Excel Run script** from working at all. §6 test 0, and `12_Template_Files.md` for what each outcome means |
-| A file carrying that label may be sent to an external provider | or the handover template needs a different label. This is a policy question with a lead time, not a build setting — `09` §3a |
-
-**If `Send an HTTP request to SharePoint` is blocked**, the fallback is `Apply to each` with
-`Update item`, concurrency 4–8, and `varThreshold` lowered to about 300. Record the change in
-`00`; do not silently drop the stamping, which is the only protection against the one failure that
-costs money.
+| **The "For internal use only" sensitivity label does not apply encryption** | the inventory template carries it and its output inherits it. An encrypting label stops `Get file content`, `Create file` and above all **Excel Run script** from working at all. §6 test 0, and `12_Template_Files.md` for what each outcome means |
+| The Requests template's sensitivity label is settled | it may need a different label if the file leaves the bank — a policy question with a lead time, not a build setting. `09` §3a |
 
 ---
 
@@ -187,23 +163,19 @@ OneDrive is a production dependency on that developer's account.
 
 | Script | Status |
 |---|---|
-| `CopyRowsIntoTable` | existing, production, unchanged |
-| `BuildRequestSheets` | new — `BuildRequestSheets.ts` in this folder |
-| `ReadUploadGate` | new — **`ReadUploadGate.ts` in this folder**. `03` §13. Never throws: on any problem it returns `available:false` with a reason rather than a zero it did not measure |
+| `CopyRowsIntoTable` | existing, production, unchanged — now shared by **both** export paths (`03` §11.5) |
+| `ReadUploadGate` | new — **`ReadUploadGate.ts` in this folder**. `03` §13, Inventory only. Never throws: on any problem it returns `available:false` with a reason rather than a zero it did not measure |
 
 ---
 
 ## 5. Build order
 
 The spec is written in build order and every action is defined before it is referenced, so working
-top to bottom works. Two departures worth making:
-
-1. **Build and test the Inventory path end to end first.** It has no stamping, no `$batch`, no
-   handover template and no return leg. Everything shared — trigger, variables, logging, the
-   sync/async split, the catch scope, the response contract — gets exercised by the simpler branch.
-2. **Add the Requests branch second**, and add §12 stamping *last*, after the Requests path
-   produces a correct workbook. Stamping is the part that writes to production data; do not have it
-   running while the thing that decides *what* to stamp is still being debugged.
+top to bottom works. Requests is now structurally a near-copy of Inventory — same script, same
+chunking, same finalize shape — so build and test the Inventory path end to end first: it exercises
+everything shared (trigger, variables, logging, the sync/async split, the catch scope, the response
+contract), and the Requests branch is then mostly "point the same actions at the Order List and the
+new template."
 
 ---
 
@@ -216,21 +188,22 @@ In order. Each test is written so a failure tells you which assumption was wrong
 Five minutes, and it decides whether the rest of the design is buildable.
 
 1. A throwaway flow: `Get file content using path` on
-   `/Shared Documents/SIMRI Templates/Template Approved SIM Request.xlsx`
+   `/Shared Documents/SIMRI Templates/Update_Inventory_tetemplate.xlsx`
 2. → `Create file` into `/SIM Exports/Files`
 3. → Excel Online **Run script** against the copy, running anything trivial
 
 **If the script runs**, the label is metadata-only and everything in `03` works. Note that the
-output file inherits the label, which is fine and probably desirable.
+output file inherits the label, which is fine and probably desirable. Repeat against the new
+Requests template once it exists.
 
 **If the script fails** with a permissions or format error, the label applies encryption. Stop.
 The chunked-write design cannot work as specified, and the fix is an Information Security
 conversation about an exemption for the flow's service account. `12_Template_Files.md` has the
-detail. Discovering this after building 130 actions is the avoidable version of a bad week.
+detail. Discovering this after building the flow is the avoidable version of a bad week.
 
 ### Wiring
 
-**1. Parameter order.** Run once from PowerApps with four distinguishable values. In the run
+**1. Parameter order.** Run once from PowerApps with three distinguishable values. In the run
 history, confirm `text` is Country, `text_1` is ExportType, `text_2` is ActionedBy. Crossed
 suffixes are the single most likely early mistake and produce a filter for a country called
 `Requests`.
@@ -280,77 +253,58 @@ at `No data`, and run history status `Succeeded`.
 
 ### Requests path
 
-**9. Three requests, one of each type.** Confirm each lands on the right sheet, the identity block
-is populated, the fill-in columns are empty, and the two ICCID columns on Swap are the right way
-round. Then confirm the sheets for the two types with no rows have been **deleted**.
+**9. All five request types present in one export.** Confirm every row lands in the same flat
+table, columns that don't apply to a given row's `RequestType` are simply blank (e.g. `newSimType`
+empty on a New SIM row), and `Delegate` rows are absent entirely — not present-and-blank, genuinely
+not in the file, because the filter excludes them before the query ever runs.
 
 **10. An ICCID with 20 digits.** Type one into the template by hand before shipping it, and check
 one in a generated file. If it displays as `8.94001E+18` or ends in zeros, the column is not
-Text-formatted and `assertTemplate` should have refused to run — which is itself the bug.
+Text-formatted. There is no runtime guard against this any more — confirm it by hand, and treat
+this test as a standing regression check, not a one-time build step.
 
-**11. A request with a `RequestType` that is not in `typeMap`.** Expect: not in the workbook, in
-`skipped` as `unmapped:<value>`, named in the response message and the log's `Notes`,
-`Rows_Skipped` incremented, and **`ExportedOn` still empty on that row** so the next export picks
-it up.
+**11. A country with no approved, non-Delegate requests.** Expect **no file**, `status = No data`,
+"No approved requests found for `<country>`.", a log item at `No data`, run history `Succeeded`.
+Confirm the same result whether there are zero approved requests or the only approved ones are all
+`Delegate` — both read the same way now.
 
-**12. A request missing a mandatory field.** Same expectations, reason `missing:<fields>`.
+**12. Chunking.** More than `varChunkSize` requests, so at least three chunks run. Confirm no
+request appears twice and the final row count matches `varShaped`'s length exactly.
 
-**13. Every request invalid.** All rows unmapped or incomplete. Expect **no file left in the
-library**, `status = No data`, a message saying so, and nothing stamped. This is `03` §11.7a, and
-v2 would have handed back a link to a workbook containing only the Instructions sheet.
+**13. Re-run the same export.** Must produce the same file, with the same rows, every time — this
+is expected and correct. If anything about the flow assumes a re-run should differ from the first
+run, that assumption is wrong; there is no dedup on this path by design.
 
-**14. Chunking.** More than `varChunkSize` requests, so at least three chunks run. Confirm:
-- `finalize` is `false` on every chunk but the last — check the payload in the run history, and
-  check it is the JSON literal `false`, not the string `"false"`
-- sheets are protected and `_Meta` is written **once**, at the end
-- no request appears twice
+### Failure
 
-**15. Re-run the same export.** Must produce "All N approved requests were already sent". If it
-produces another file, stamping is not working, and that is the failure that costs money.
-
-**16. `ReExport = true`.** Must produce a file containing the same requests, with `ReExport = Yes`
-on the log item.
-
-### Stamping and failure
-
-**17. Read one raw `$batch` response by hand** before trusting the parser — the same advice the
-import spec gives, for the same reason. Confirm where the connector puts a multipart response and
-that a successful PATCH shows `HTTP/1.1 204`.
-
-**18. A `$batch` that fails.** Force it — point one PATCH at an item ID that does not exist. Expect:
-the run fails, the file is deleted, and **§16.6 clears `ExportedOn` and `ExportRunId` from every row
-this run had already stamped**. Then re-run the export normally and confirm those requests come
-back. This is the test that proves the design is safely re-runnable, and it is the one most likely
-to be skipped.
-
-**19. Concurrency.** Two admins, same country, Requests, within seconds. Expect exactly one export
-and one clear "already running" message — not two exports, and not two rejections. If both are
-rejected, the `ID lt varLogItemId` clause is missing from §10.2b.
-
-**20. Async failure.** Force a failure after `Respond queued`. Expect: no second Respond attempt,
+**14. Async failure.** Force a failure after `Respond queued`. Expect: no second Respond attempt,
 a failure **email** to the actioning admin, a log item at `Failed` with a readable `ErrorMessage`,
 and no partial file left behind. A second Respond would take the catch scope down with it and the
 user would get silence.
 
-**21. Sharing link blocked.** Temporarily deny organisation-scoped links, or point the action at a
+**15. Sharing link blocked.** Temporarily deny organisation-scoped links, or point the action at a
 bad identifier. The export must still complete, with `shareUrl` empty and `fileUrl` working.
+
+**16. A file left locked after a forced failure.** Force `Create sharing link` to fail hard (not
+just the tolerated "continue on failure" path) right after a chunked write, so the catch's
+`Delete partial file` fires while the file may still carry a brief SharePoint co-authoring lock from
+the preceding `Run CopyRowsIntoTable` calls. Confirm the delete either succeeds (possibly after
+retry) or, if it doesn't, that the run still completes and the orphaned file is visible via `08` §7's
+runbook rather than silently lost.
 
 ### Delivery and downstream
 
-**22. Async threshold.** An export just over `varThreshold`. Expect a response in about four
+**17. Async threshold.** An export just over `varThreshold`. Expect a response in about four
 seconds, `status = Queued`, a log item at `Queued`, then an email with a **link** — never an
 attachment. Confirm `Delivery = Emailed` on the final log row.
 
-**23. Popup blocked.** Block popups in the browser and click Export. The user must still be able to
+**18. Popup blocked.** Block popups in the browser and click Export. The user must still be able to
 get the file from the selectable `shareUrl` label.
 
-**24. The provider's experience.** Open a finished workbook as a provider would: fill a row, try to
-edit a protected cell, try to delete a sheet, paste a column of ICCIDs. Confirm the check columns
-colour correctly on typed entry, and confirm they do **not** fire on paste — that is expected, and
-it is why the return-leg import must revalidate everything server-side.
-
-**25. Read `_Meta`.** Unhide it with a script and confirm RunId, Country, ExportedBy, ExportedUtc,
-RowsWritten and TotalExpectedRows are all populated and match the log row.
+**19. Two admins export the same country at once, both types.** Expect two independent successful
+runs, two files, two log rows. Neither should reject, block, or interfere with the other — confirm
+this is actually true rather than assuming it, since it's a behaviour change from the earlier
+stamped design.
 
 ---
 
@@ -358,38 +312,28 @@ RowsWritten and TotalExpectedRows are all populated and match the log row.
 
 | Symptom | First thing to check | Recovery |
 |---|---|---|
-| Log item stuck at `Running` or `Queued` for over a day | run history for that RunId — a cancelled run or a platform timeout reaches neither terminal action | if `ExportRunId` was stamped on Order List rows, clear it manually with the filter `ExportRunId eq '<runId>'`, then re-export |
-| An admin says requests never reached the provider | `Rows_Skipped` on the log row, then `Notes` for the RequestIDs and reasons | fix the data, re-export — skipped rows were never stamped |
-| A request was provisioned twice | the log's "By country" view for two Requests exports close together, and `ReExport` on both | the stamp on the Order List row names the RunId that sent it |
-| Every Requests export rejects itself as "already running" | `ID lt varLogItemId` missing from §10.2b's filter | fix the filter; no data damage |
-| Provider's workbook has no colours and `RowErrors` is blank | check columns hold values instead of formulas | the script wrote columns it should have stepped over. Compare against `BuildRequestSheets.ts` §"v3 — what changed" |
-| ICCIDs end in zeros | the column lost its `@` format and `assertTemplate` did not catch it | check the payload's `textHeaders`, then the template |
+| Log item stuck at `Running` or `Queued` for over a day | run history for that RunId — a cancelled run or a platform timeout reaches neither terminal action | nothing to clean up on the Order List — just re-export. `02`'s "Stuck runs" view finds these |
+| A file is left in `/SIM Exports/Files` after a failed or undelivered export | the log row's `Notes` and `Status` for that RunId — `03` §16.5's delete is best-effort and can fail if the file is still momentarily locked from a preceding write | manually delete once any lock clears (usually within a couple of minutes), or leave it — the 90-day retention policy (`09` §2) will purge it eventually |
+| Provider's workbook has no formulas where expected | check columns hold values instead of formulas | check `repairFormulas` on the relevant `Run CopyRowsIntoTable` call — Inventory's should be `true`; the Requests template has no formula columns to repair, so this only applies to the Inventory path |
+| ICCIDs end in zeros | the column lost its `@` format | check the template directly — there is no automatic guard on either path; `08` §6 test 10 is the standing check |
 | Export works but nothing is logged | `varLogItemId` is 0 — `Create log item` failed, or `?['ID']` casing is wrong | test 2 |
-
-Clearing a stamp by hand, for the runbook rows that need it:
-
-```
-_api/web/lists(guid'<simri_OrderListId>')/items?$filter=ExportRunId eq '<runId>'&$select=Id
-```
-
-then PATCH `{"ExportedOn":null,"ExportRunId":null}` on each. §16.6 automates exactly this; the
-manual version is for the runs that never reached the catch scope at all.
 
 ---
 
 ## 8. Before go-live
 
-- [ ] All 25 tests pass, including 8, 18 and 19
+- [ ] All 19 tests pass, including 8, 13 and 19
 - [ ] The scheduled failure-digest flow exists and has sent one "nothing to report" email
 - [ ] Retention is applied to `/SIM Exports/Files` and confirmed in the compliance record (`09`)
-- [ ] `00` open items O1, O2, O3 are closed and `typeMap` matches the real choice values
+- [ ] `00` open items O1 and O2 are closed and the filter's literal values match the real choices
 - [ ] O4 — external transfer of employee data — has an answer from Data Protection, in writing
 - [ ] `varThreshold` has been set from measured timings, not from 2000 being a round number
-- [ ] Test 0 passed — the sensitivity label does not block the Run script action
-- [ ] The sensitivity label question in `09` §3a has an answer: either the handover template is
-      relabelled for controlled external sharing, or the deviation is accepted in writing
-- [ ] The handover template has been through `06` §7: no web-extension reference, no personal
-      document properties, no sample rows
+- [ ] Test 0 passed for **both** templates — the sensitivity label does not block the Run script
+      action
+- [ ] The sensitivity label question in `09` §3a has an answer for the Requests template: either
+      it's relabelled for controlled external sharing, or the deviation is accepted in writing
+- [ ] The Requests template exists, matches `04_Order_List_Schema.md`'s column map exactly, and its
+      `ICCID` column is Text-formatted
 - [ ] The connection identity is a service account and is documented
 - [ ] One local admin who was not involved in building this has run an export start to finish
       without being told how

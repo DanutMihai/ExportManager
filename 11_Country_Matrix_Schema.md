@@ -107,22 +107,21 @@ legitimate admin being told they are not authorised.
 ### What it does not do — and why that is a decision, not an omission
 
 **`FulfillmentType = API` does not block a Requests export.** An API-fulfilled country provisions
-automatically, so a provider handover workbook is not normally needed there — but the export is
-allowed anyway, deliberately, so a manual fallback stays available when the API is down. Nothing in
-the flow warns about it.
+automatically, so a manual export is not normally needed there — but the export is allowed anyway,
+deliberately, so a manual fallback stays available when the API is down. Nothing in the flow warns
+about it.
 
-The consequence to be aware of rather than act on: if someone exports an API country and sends the
-file, the same request can be ordered through two channels. `02`'s `ExportedOn` stamp still prevents
-a *second export*, but it cannot know the API already ordered the line. If that ever happens for
-real, the fix is one clause in §10.2's filter, or a warning appended to `varNotes` when
+The consequence to be aware of rather than act on: since the export is fully read-only (no dedup —
+`00`), the same approved request can end up ordered more than once through the manual channel
+alone, on top of the API channel it may already have gone through. Neither export path knows
+whether a request has already been actioned by anything else. If that ever becomes a real problem,
+the fix is one clause in §10.2's filter, or a warning appended to `varNotes` when
 `FulfillmentType eq 'API'` — both cheap, and neither is built.
 
 **`UseDefaultDeliveryAddress` needs no handling here.** When it is `No`, the PowerApps request form
 prompts the user for an address, so every request reaches the Order List with `DeliveryAddress`
-populated either way. The export's `missing:deliveryAddress` check on New SIM (`03` §17) therefore
-behaves correctly with no country-level fallback. Recorded because the alternative — blank
-addresses on requests in default-address countries — would have skipped every New SIM request in
-those markets and produced no file at all.
+populated either way — the export just reads whatever is there, with no country-level fallback to
+apply.
 
 ---
 
@@ -130,14 +129,12 @@ those markets and produced no file at all.
 
 `00_Design_Decisions.md` records one provider per country as a confirmed assumption. It is not just
 an assumption: **`field_3` is a single Provider value on a single row per country**, so the schema
-enforces it. That is a stronger foundation than a verbal answer, and it is worth knowing which file
-would have to change first if it ever stopped being true — `06_Handover_Template_Spec.md`, in its
-closing section.
+enforces it. That is a stronger foundation than a verbal answer.
 
-**One option worth considering, not currently built.** The handover workbook takes `Provider` from
-each Order List row (`03` §11.4). Since the flow already fetches the matrix row for authorisation,
-it could take the provider from `field_3` instead — one authoritative value per file rather than one
-per request.
+**One option worth considering, not currently built.** The export takes `Provider` from each Order
+List row (`03` §11.4). Since the flow already fetches the matrix row for authorisation, it could
+take the provider from `field_3` instead — one authoritative value per file rather than one per
+request.
 
 The argument for the current behaviour: a request approved before a provider change carries the
 provider it was approved under, which is arguably the honest record. The argument against: the
@@ -156,13 +153,13 @@ or a clean "no approved requests" — a correct-looking answer to a question nob
 the PowerApps country picker sources from this list and the other two lists were populated from it,
 this holds; it is worth one check per new country rollout.
 
-**The inventory template's `tblCountries` is a static copy of this list.**
-`06_Handover_Template_Spec.md` §3 flags that the workbook's country dropdowns use
-`Config!$A$2:$A$51` — a fixed 50-row range, because data validation rejects structured references.
-**This** list is the source of truth; that sheet is a snapshot of it. Add the 51st country here and
-it is silently absent from every dropdown in the template, and from the `DialCode` lookup that
-`IsPhoneValid` depends on. Regenerating the Config sheet from this list should be part of adding a
-country, not something remembered later.
+**The inventory template's `tblCountries` is a static copy of this list.** This concerns the
+Inventory export only — the Requests export carries no validation formulas of its own to keep in
+sync. The inventory template's country dropdowns use `Config!$A$2:$A$51` — a fixed 50-row range,
+because data validation rejects structured references. **This** list is the source of truth; that
+sheet is a snapshot of it. Add the 51st country here and it is silently absent from every dropdown
+in the template, and from the `DialCode` lookup that `IsPhoneValid` depends on. Regenerating the
+Config sheet from this list should be part of adding a country, not something remembered later.
 
 ---
 

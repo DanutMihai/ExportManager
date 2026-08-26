@@ -1,8 +1,10 @@
 # The two template files — real metadata
 
-Captured from `Get file properties` and `Get file metadata` on 19-08-2026. This is the
-authoritative record of where the templates actually live and what they carry, replacing the
-placeholder paths earlier drafts used.
+The Inventory template's metadata below was captured from `Get file properties` and
+`Get file metadata` on 19-08-2026 — this is the authoritative record of where it actually lives and
+what it carries. The Requests template (`Requests_Export_Template.xlsx`) doesn't exist yet — it
+needs to be built per `08` §1.7 — so its metadata section below is a placeholder to fill in once
+that file exists, not a captured fact.
 
 Both files sit in the **same library and folder**, on the same drive:
 
@@ -49,34 +51,23 @@ If you do rename it, do it once, before go-live, and update `08` §2.
 
 ---
 
-## Requests handover template
+## Requests template
 
-**`Template Approved SIM Request.xlsx`** — the file the Requests export copies and fills for the
-provider.
+**`Requests_Export_Template.xlsx`** — the file the Requests export copies and writes into. This
+replaces the earlier five-sheet provider handover workbook design entirely: one plain Excel Table
+(`Table_Requests`), headers matching `04_Order_List_Schema.md`'s column map, no protection, no
+formula/check columns. Structurally the same shape as the Inventory template, just a different
+table and column list.
 
-| Property | Value |
-|---|---|
-| List item ID | `626` |
-| Path *(for `Get file content using path`)* | `/Shared Documents/SIMRI Templates/Template Approved SIM Request.xlsx` |
-| `{FullPath}` | `Shared Documents/SIMRI Templates/Template Approved SIM Request.xlsx` |
-| `{Identifier}` | `Shared%2bDocuments%252fSIMRI%2bTemplates%252fTemplate%2bApproved%2bSIM%2bRequest.xlsx` |
-| `{Name}` | `Template Approved SIM Request` — **no extension** |
-| `{FilenameWithExtension}` | `Template Approved SIM Request.xlsx` |
-| `{DriveId}` | `b!nf9qtZJTV0-78d3OpNngLHm4hVngJLJJs38RvMarR4qQBGnO7DcOTK6CeGYWJKjy` |
-| `{DriveItemId}` | `012MIYOHOPSYPGOASXZZA2OSZHQ5A3UTWK` |
-| Sensitivity label | **For internal use only** · `af1741f6-9e47-426e-a683-937c37d4ebc5` |
-| Size | 21,661 bytes |
-| Created | 2026-07-22T08:34:57Z by Danut Ilie |
-| Last modified | 2026-07-30T10:26:03Z |
-| ETag | `{671E96CF-5702-41CE-A74B-278741BA4ECA},2` |
+**Build it, then capture its real metadata here** — list item ID, `Path`, drive IDs, size, the
+sensitivity label actually applied — the same way the Inventory template's metadata above was
+captured, once the file exists in SharePoint. Until then, treat every value in this subsection as
+unknown rather than assumed.
 
-**This file already exists**, so `06_Handover_Template_Spec.md` describes work to be applied *to
-it*, not a workbook to create from nothing. What is actually in it today is unknown from metadata
-alone — 21 KB is consistent with either a near-empty scaffold or a partly-built template.
-
-You do not need to audit it by hand. `assertTemplate()` runs on the first chunk and reports every
-gap at once: missing tables, missing sheets, a table with the wrong number of data rows, a text
-column that is not formatted `@`. Run one three-row export and read the error.
+Nothing here needs an equivalent of `assertTemplate()` — there's no per-type table/sheet structure
+to validate at runtime any more. The one thing worth checking by hand before shipping: the `ICCID`
+column is formatted Text (`@`), same reason as the Inventory template's `ICC_ID` column (`08` §6
+test 10).
 
 ---
 
@@ -91,20 +82,29 @@ problem.
 
 ### 2. `{Identifier}` is double-encoded and must never be hand-built
 
+*(from `Get file properties`/`Get file metadata` — see the note below on why this differs from
+`Create file`'s own output)*
+
 ```
 Shared%2bDocuments%252fSIMRI%2bTemplates%252fTemplate%2bApproved%2bSIM%2bRequest.xlsx
 ```
 
-`%2b` is `+`, which is a form-encoded space; `%252f` is a double-encoded `/`. So a space becomes
-`+` becomes `%2b`, and a slash becomes `%2f` becomes `%252f`. Nobody is going to reproduce that
-reliably by hand, and a file with spaces in its name — which this one has — is where an attempt
-would go wrong.
+Kept as a real, captured illustration of the encoding trap even though this particular filename is
+retired: `%2b` is `+`, which is a form-encoded space; `%252f` is a double-encoded `/`. So a space
+becomes `+` becomes `%2b`, and a slash becomes `%2f` becomes `%252f`. Nobody is going to reproduce
+that reliably by hand.
 
-Take it from `body('Get_template')` or `body('Create_export_file')?['{Identifier}']`. Same rule as
-`{Link}` and `{Path}`.
+**This is a different action from the flow's own `Create file`, and the two do not share a schema.**
+`Get file properties`/`Get file metadata` return bracketed keys like `{Identifier}`/`{Path}`/
+`{Link}` — genuinely, confirmed here. The SharePoint **Create file** action used at `03` §11.3 does
+**not**: its real output has only plain keys (`Id`, `Path`, `Name`, …, no `Link` at all), found
+during testing by reading the action's actual raw output. So inside the flow, reference the
+just-created file as `body('Create_export_file')?['Id']`, not `?['{Identifier}']` — that bracketed
+form belongs to this document's metadata capture, not to the running flow.
 
-`{DriveId}` + `{DriveItemId}` are also available and are the more robust pair for the Excel Online
-**Run script** action if `{Identifier}` ever gives trouble — both templates sit on the same drive.
+`{DriveId}` + `{DriveItemId}` are also available from `Get file properties`/`Get file metadata` and
+are the more robust pair for the Excel Online **Run script** action if `{Identifier}` ever gives
+trouble — both templates sit on the same drive.
 
 ### 3. `{Name}` excludes the extension
 
@@ -117,8 +117,9 @@ Take it from `body('Get_template')` or `body('Create_export_file')?['{Identifier
 
 ## The sensitivity label — verify this before you build anything else
 
-**Both templates carry the label "For internal use only."** A file created from a labelled template
-**inherits the label**, so every workbook this flow produces will carry it too.
+**The Inventory template carries the label "For internal use only."** A file created from a labelled
+template **inherits the label**, so every Inventory export will carry it too. The Requests
+template's label is a choice to make when building it (`09` §3a), not yet a fact.
 
 That has two consequences, and the first one can stop the build.
 
@@ -132,35 +133,25 @@ It depends on whether the label applies **encryption**:
 | **Encryption enabled** | `Get file content` returns encrypted bytes, `Create file` produces a file the Excel connector cannot open, and **Excel Online → Run script fails**. The whole chunked-write design stops working. |
 
 **Test this first — before the trigger, before the log list, before anything.** `08` §6 test 0.
-It is a five-minute check: run `Get file content using path` on the handover template, `Create file`
-into `/SIM Exports/Files`, then a trivial Run script against the copy. If the script opens the file,
-you are clear. If it fails with a permissions or format error, the label is encrypted and the
-design needs a different approach — most likely an exemption for the flow's service account, which
-is an Information Security conversation with a lead time.
+It is a five-minute check: run `Get file content using path` on the Inventory template, `Create
+file` into `/SIM Exports/Files`, then a trivial Run script against the copy. If the script opens
+the file, you are clear. If it fails with a permissions or format error, the label is encrypted and
+the design needs a different approach — most likely an exemption for the flow's service account,
+which is an Information Security conversation with a lead time. Repeat the same test against the
+Requests template once it's built and labelled.
 
 Do not discover this after building 130 actions.
 
 ### "For internal use only" — on a file that goes to an external provider
 
-This is a policy conflict on the face of it, and it belongs to a person rather than to the flow.
+This is a policy conflict to avoid building in, not one to discover afterward — it belongs to a
+person rather than to the flow.
 
-The Requests workbook is *designed* to leave the bank: `00` records that the admin downloads it and
-forwards it to the country's provider. A file labelled "For internal use only" being emailed to a
-supplier is either a policy breach or a label that does not mean what its name suggests.
-
-Three possible answers, and you need to know which one applies:
-
-- **The label is advisory** and the process is accepted — then record it in `09` §3 as a known
-  deviation with whoever accepted it.
-- **The label carries a DLP rule** that blocks external sharing — then the admin's send will fail,
-  probably silently from their point of view, and the handover process does not work at all.
-- **The handover file should carry a different label** — one that permits controlled external
-  sharing. Then the flow needs to set it, or the template needs to be relabelled, and the internal
-  Inventory export keeps "For internal use only" while the Requests one does not.
-
-The third is most likely the right answer and it is cheap to arrange *now*: relabel
-`Template Approved SIM Request.xlsx` and every copy inherits correctly. Retrofitting it after
-providers are receiving files means re-sending everything already sent.
+The Requests export is *designed* to leave the bank eventually: `00` records that the admin
+downloads it and forwards it to the country's provider. A file labelled "For internal use only"
+being emailed to a supplier is either a policy breach or a label that does not mean what its name
+suggests. Since the Requests template doesn't exist yet, the fix is to build it with the right
+label from the start rather than relabel it later — full detail in `09` §3a.
 
 `09` §3a carries this as an open compliance item. `00` open item **O4** does not close without it.
 
@@ -173,13 +164,14 @@ Worth stating plainly, because earlier drafts of this folder confused the two.
 `SIM_Data_Validation_DEMO.xlsx` — the file in this working folder — is the **validation-design
 reference**. It is where the ICCID Luhn check, the dial-code check, the date check, the `RowErrors`
 concatenation and the `UploadGate` pattern were worked out, and its Readme is the best explanation
-of *why* those rules exist. `06` quotes it for that reason.
+of *why* those rules exist.
 
 It is **not** a production dependency of this flow, and earlier instructions to "rename it because
 DEMO in the name invites an accident" were aimed at the wrong file. Ignore them.
 
-The consequence, and it is a real one: **`06`'s three criticisms of "the inventory template" were
-derived from the DEMO file, not from `Update_Inventory_tetemplate.xlsx`.** Specifically —
+The consequence, and it is a real one: **three criticisms of "the inventory template" from earlier
+review rounds were derived from the DEMO file, not from `Update_Inventory_tetemplate.xlsx`.**
+Specifically —
 
 - validation and conditional formatting capped at row 1966
 - row 2 validating differently from rows 3 and below

@@ -14,22 +14,25 @@ for it.
 
 ## 1. What data leaves the list, and what does not
 
-### Requests export — the workbook that goes to a provider
+### Requests export — the flat file that goes to a provider
+
+One row per approved, non-`Delegate` request, every column present on every row (blank where it
+doesn't apply to that row's type — `04_Order_List_Schema.md` has the full map):
 
 | Field | Category | Why it goes |
 |---|---|---|
-| `RequestID` | internal identifier | the return-leg matching key |
-| `RequestType` | operational | tells the provider what to do |
+| `RequestID` | internal identifier | traceability |
+| `RequestType` | operational | tells the recipient what kind of request this is |
+| `CountryName` | operational | confirmation the file is for the right market |
 | `GDID` | **employee identifier** | the reference both sides use for the line |
-| `Requested for` | **employee name** | the provider provisions a named line |
+| `Requestedfor` | **employee name** | the provider provisions a named line |
 | `Provider` | operational | recipient confirmation |
-| `Ticket_ID` | internal reference | traceability both ways |
+| `Ticket_ID` | internal reference | traceability |
 | `PhoneNr`, `ICCID`, `SIMType`, `PlanName`, `NewPlan`, `newSimType` | **service data** | the line being changed |
 | `DeliveryAddress` | **delivery address** | where a physical SIM ships |
 | `Location` | operational | office / site |
-| `simInventoryID` | internal surrogate key | round-trip only — see O5 |
+| `simInventoryID` | internal surrogate key | links the row to the inventory item it affects |
 | `TransferdTo` (display name) | **employee name** | the transfer target |
-| `Country` (hidden) | operational | drives the dial-code validation |
 
 ### Deliberately excluded
 
@@ -131,23 +134,16 @@ becomes a build requirement rather than a process one.
 
 ## 3a. The sensitivity label says "For internal use only"
 
-Both templates carry the Microsoft Purview label **For internal use only**
+The Inventory template carries the Microsoft Purview label **For internal use only**
 (`af1741f6-9e47-426e-a683-937c37d4ebc5`), and a file created from a labelled template **inherits
-the label**. So every workbook this flow produces is labelled that way — including the Requests
-workbook, which is designed to be forwarded to a supplier.
+the label**. The new Requests template (`08` §1.7, `Requests_Export_Template.xlsx`) doesn't exist
+yet, so its label is a choice to make now, not an inherited fact to discover later.
 
-On the face of it that is a contradiction, and it is one a reviewer will spot immediately. It needs
-an answer before go-live, and only one of the three possible answers requires no work:
-
-| If the label is… | Then… | Action |
+| If the Requests template is labelled… | Then… | Action |
 |---|---|---|
+| **"For internal use only"**, same as Inventory | the same contradiction v3 flagged: a file designed to leave the bank carries a label saying it shouldn't | avoid this — pick one of the two rows below instead |
 | **Advisory / visual marking only**, and sending labelled files to contracted suppliers is accepted practice | nothing technically breaks | record the deviation here, naming who accepted it. Do not leave it implicit |
-| **Enforced by a DLP rule** blocking external sharing | the admin's send fails — possibly silently from their point of view — and the handover process does not work at all | the process needs an exception, or the label needs to change |
-| **Wrong for this file** | the Requests workbook should carry a label permitting controlled external sharing, while the Inventory export legitimately keeps "For internal use only" | relabel `Template Approved SIM Request.xlsx`; every copy inherits correctly from then on |
-
-**The third is most likely right, and it is cheapest now.** Relabelling one template is a
-five-minute change today. Doing it after providers have been receiving files for a month means
-re-sending everything already sent, and explaining why the first batch was labelled incorrectly.
+| **A label permitting controlled external sharing** | matches what the file actually does | build the template with this label from the start — cheaper than relabelling after providers are already receiving files under the wrong one |
 
 Note also that the two exports genuinely have different classifications, which is an argument for
 two different labels rather than one:
@@ -176,15 +172,18 @@ For any export, from the SIM Export Log alone:
 | Who ran it? | `ActionedBy_email` |
 | What data left, and how much? | `ExportType`, `Country`, `Rows_Exported`, `Sheet_Breakdown` |
 | Where did the file go? | `ExportFile`, `Delivery` |
-| Which specific requests were in it? | `ExportRunId` on the Order List rows, matching `RunId` |
-| Was it a repeat send? | `ReExport` |
-| Did anything not get sent, and why? | `Rows_Skipped`, `Notes` |
+| Which specific requests were likely in a given run? | `Country` + `Started`/`Finished` on the log row, cross-referenced against the Order List's current `Approved` rows for that country — there is no per-request stamp any more, so this is reconstructed rather than looked up directly |
 | Did anyone try to export a country they do not administer? | `Status = Unauthorised`, with the email and country attempted |
-| Can a file found in someone's inbox be traced back? | `_Meta.RunId` in the workbook → `RunId` in the log |
 
-The three that were not answerable in v2 and are now — `ReExport`, `Rows_Skipped` and
-`Unauthorised` as its own status — are exactly the three an auditor asks about, because they are
-the three that indicate something other than routine operation.
+`Unauthorised` as its own status, rather than folding into `Invalid`, is exactly the kind of thing
+an auditor asks about — it's the one status that indicates something other than routine operation.
+
+**Worth being explicit about:** because neither export path writes back to its source, the log
+records *that* an export happened and roughly *what* it contained (row count, breakdown), but not
+an exact, durable list of which specific requests were in a specific file the way a stamped design
+would. If an exact per-run manifest is ever needed for audit purposes, that requires either
+reintroducing a write-back or archiving the generated files themselves for longer than the current
+90-day retention (§2) — a decision worth flagging to Data Protection rather than assuming away.
 
 Power Automate run history expires after about 28 days. After that the log is the only record,
 which is why `02` insists the log item is created **before** the work starts rather than written at
@@ -222,17 +221,7 @@ Related and currently unresolved: the file carries a label that says it should n
 at all (§3a). Until that is settled, "uncontrolled after download" understates it — the send may
 be blocked outright, or may be a policy breach, depending on how the label is configured.
 
-### R3 — Provider-side data quality cannot be enforced
-
-Excel data validation never fires on pasted data, on fill-down, or from a macro. Providers paste.
-The check columns and conditional formatting in the handover template are **guidance**, not
-enforcement, and the `ReturnGate` cell is a convenience.
-
-*Consequence:* the return-leg import must revalidate every field server-side and reject per row.
-It must not be designed on the assumption that the workbook enforced anything. This is written into
-`00` and `01` §9 as well, because it is the assumption most likely to be quietly made.
-
-### R4 — Organisation-scoped links are readable by anyone in the tenant who has the URL
+### R3 — Organisation-scoped links are readable by anyone in the tenant who has the URL
 
 An org-scoped sharing link does not check whether the recipient should see that country's data —
 only that they are inside the bank. Forwarded internally, it grants access.
@@ -241,15 +230,6 @@ only that they are inside the bank. Forwarded internally, it grants access.
 permissions and fails as an uncatchable browser error, which is worse for the user and no better
 for the data. *Compensating control:* 90-day retention bounds the window, and the log records who
 generated each link.
-
-### R5 — A cancelled run can leave requests stamped but never sent
-
-`03` §16.6 compensates when the flow fails. It cannot run if an administrator cancels the run
-outright, because neither the catch scope nor the compensation executes.
-
-*Detection:* `02`'s "Stuck runs" view. *Recovery:* `08` §7's manual stamp-clearing procedure, keyed
-on `ExportRunId`. *Likelihood:* low, but the failure is silent and permanent if nobody looks — which
-is precisely why the view and the runbook entry exist.
 
 ---
 
@@ -267,8 +247,8 @@ If Data Protection or Compliance asks for one page, it is this:
   internal audit history and internal ticket references are never included.
 - **Retention at our end:** 90 days on the generated files; the audit log persists.
 - **Retention at theirs:** contractual, not technical — §3.
-- **Audit:** every export produces one immutable log row with who, what, when, how many and where,
-  plus a run identifier stamped onto each request that was sent (§4).
+- **Audit:** every export produces one immutable log row with who, what, when, how many and where
+  (§4) — reconstructed against the Order List's current state rather than a per-request stamp.
 - **Known gaps:** R1 (authorisation is a deterrent, not a control) and R2 (the file is uncontrolled
   once downloaded), both recorded above with what closing them would cost.
 

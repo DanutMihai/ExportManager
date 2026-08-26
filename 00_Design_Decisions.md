@@ -14,11 +14,9 @@ presents one of these as still open, this file wins.
 | 08 | `08_Build_Checklist.md` | everything that must exist **before** you open the designer |
 | 03 | `03_Export_Flow_Spec.md` | the flow, action by action, in build order |
 | 02 | `02_Export_Log.md` | the log list schema and the exact field values |
-| 04 | `04_Order_List_Schema.md` | source column names and the handover mapping |
+| 04 | `04_Order_List_Schema.md` | source column names and the Requests export's column map |
 | 11 | `11_Country_Matrix_Schema.md` | each country's config and its local admins — the authorisation source |
 | 12 | `12_Template_Files.md` | where the two templates really are, and the sensitivity label on both |
-| 06 | `06_Handover_Template_Spec.md` | what the provider workbook must contain |
-| — | `BuildRequestSheets.ts` | the Office Script that builds the provider workbook |
 | — | `ReadUploadGate.ts` | the Office Script that reads the inventory data-quality gate |
 | 07 | `07_Flow_Diagram.html` | the same flow as a clickable tree, for orientation |
 | 09 | `09_Compliance_and_Data_Protection.md` | what leaves the bank, and under what controls |
@@ -59,41 +57,23 @@ PowerApps flow call times out around 120 seconds, so a 60,000-row inventory expo
 synchronous — but making every export async would punish the 200-row case for the sake of the
 rare big one.
 
-**Volume:** Inventory up to 60,000. Requests up to 10,000 per country as a one-time backlog;
-after the first stamped export per country, the steady state is tens to low hundreds.
+**Volume:** Inventory up to 60,000. Requests reads whatever currently matches `Approved` and
+non-`Delegate` for the country — no fixed backlog figure, since every run re-reads the current
+state rather than draining a queue.
 
-**Requests export is a provider handover workbook, not a data dump.** The local admin sends it to
-the country's provider, who fills in the operational detail — phone number, ICCID, effective date
-— and sends it back. That makes it a round-trip document, so it gets the template treatment:
-validated fill-in columns, protected request columns.
+**Both export types are flat, read-only dumps.** The Requests export was originally designed as a
+round-trip provider handover workbook — per-type sheets, protected fill-in columns, a stamping
+mechanism to stop double handover, a planned return-leg import. None of that was actually needed:
+the requirement is "send the country's approved, non-Delegate requests to the provider in bulk,"
+the same shape as the Inventory export. Requests now shares Inventory's exact mechanics — one
+`Select`, one flat Excel table, the same `CopyRowsIntoTable` script. See `03`'s "What changed from
+v3" table for the full list of what this removed.
 
-**One sheet per request type.** New SIM, Terminate, Swap, Transfer and Change plan each get their
-own tab carrying only the columns that type needs. A provider looking at eight columns where
-three apply will fill the wrong ones.
-
-**Sheet protection on, no password.** Only the provider fill-in columns are unlocked, and workbook
-structure is protected so sheets cannot be added, deleted or reordered. This stops a RequestID or
-employee name being altered in transit, which would break the return-leg import. No password: it
-prevents accidents rather than determined edits, and a locked-out provider is a support call you
-don't want.
-
-**The Requests export writes back — `ExportedOn` and `ExportRunId` are stamped.** This reverses
-the original read-only decision, and the reason is in `01` §1: an approved request exported twice
-means a second SIM provisioned and a bill for a line nobody asked for. It is the only failure in
-this design that costs real money, and the log makes a duplicate *detectable* but not
-*prevented*. Stamping prevents it.
-
-Two consequences follow, and both are handled in `03`:
-
-- Stamping happens **after** the file is confirmed written, never before. A build that fails
-  after stamping leaves requests marked exported that were never sent — worse than the failure
-  being prevented.
-- Stamping via `Apply to each` is one API call per row against a ~600-calls-per-60-seconds
-  connector limit, which would silently push the sync path past 120 seconds. `03` §12 uses OData
-  `$batch` at 100 rows per call instead.
-
-**The Inventory export stays read-only.** Nothing is stamped, nothing transitions. Exporting the
-inventory reads; it does not write back.
+**Neither export type writes back to its source list.** Nothing is stamped, nothing transitions,
+and a re-run returns the same rows again if nothing has changed. Confirmed explicitly for
+Requests: no dedup, no write-back to the Order List. Whoever receives the file is responsible for
+not re-processing a request they already handled — this flow's job stops at producing an accurate,
+current snapshot.
 
 **Delivery mechanism: `Create sharing link`, scope Organization, type View.** This closes the
 question v1 left open. `download.aspx?SourceUrl=…` depends on the user holding read access to the
@@ -108,9 +88,8 @@ the sync and async paths.
 > will produce an access-denied page and a support ticket. See `09` §3.
 
 **Audit lives in a SIM Export Log list** — date, who, country, export type, row counts, delivery,
-stamped count, duration, and a link to the file. Schema in `02_Export_Log.md`. One item per run,
-created `Running` before the work starts, so runs that die without reaching a terminal action
-still leave a record.
+duration, and a link to the file. Schema in `02_Export_Log.md`. One item per run, created `Running`
+before the work starts, so runs that die without reaching a terminal action still leave a record.
 
 **Authorisation is a control, not access control.** The flow checks `ActionedBy` against the
 country's Local Admin fields on the **SIMRI Country Matrix** — the list the app already maintains,
@@ -126,34 +105,23 @@ change is a `Country` list plus a loop producing one file and one log row per co
 §20 for the note that will be there when someone goes looking.
 
 **One provider per country.** Not just confirmed — **enforced by the schema**: the SIMRI Country
-Matrix holds a single `Provider` value on a single row per country. The workbook therefore contains
-one country's requests for one provider, and `Provider` sits in the identity block as a
-confirmation for the recipient rather than as a grouping key. If that ever stops being true, `06`
-§"If the one-provider-per-country assumption breaks" records what changes — and the failure mode if
-it is missed is provider A receiving provider B's customer list, which is a data-sharing incident
-rather than a bug.
+Matrix holds a single `Provider` value on a single row per country. The file therefore contains one
+country's requests for one provider, and `Provider` is a plain column in the export as confirmation
+for the recipient rather than as a grouping key. If that ever stops being true, the failure mode is
+provider A receiving provider B's customer list, which is a data-sharing incident rather than a
+bug — worth a design conversation before it's ever asked for, not something to guard against now.
 
 ---
 
-## Planned for, not built yet: the return leg
+## Cancelled: the return leg
 
-The provider sends the workbook **back**. That return leg needs a flow that reads the completed
-sheets, validates what the provider typed, updates the Order List, and creates the resulting
-Global SIM Inventory rows. It is not in scope here, but three things are built into the export
-now because retrofitting them means asking providers to switch format:
-
-- **A stable `RequestID` column** on every sheet, protected, used to match on the way back
-- **A hidden `_Meta` sheet** (`veryHidden`) carrying RunId, country, who exported, timestamp and
-  row count, so the import can tell a current file from a stale one and confirm the file came
-  from a real export rather than being hand-assembled
-- **`ExportRunId` on the Order List**, matching `_Meta`, so a returned file maps to the rows it
-  came from
-
-One correction to carry forward: `00` used to describe the fill-in columns as "validated at
-source". They are **guided** at source. Excel data validation never fires on pasted data, on
-fill-down, or from a macro, and providers paste. **The return-leg import must revalidate every
-field server-side and reject per row.** Do not design it on the assumption the workbook already
-enforced anything.
+Earlier drafts planned a future flow that would read a completed provider workbook back, validate
+what the provider typed, and update the Order List and Global SIM Inventory accordingly — and built
+three things into the export to support it (`RequestID` matching, a hidden `_Meta` sheet, an
+`ExportRunId` link back to the Order List). That plan is cancelled, not deferred: once the export
+became a flat, one-way bulk file, there was no workbook round trip left for a return-leg import to
+read. If a return leg is ever commissioned, it starts from scratch against whatever format the
+provider actually returns — not from this file's structure.
 
 ---
 
@@ -163,14 +131,15 @@ Everything else in this folder is decided. These are not, and each names who can
 
 | # | Item | Blocks | Owner |
 |---|---|---|---|
-| O1 | The exact `RequestType` choice values, as spelled | `typeMap`, sheet names, table names in the handover template | you — one query, `08` §1 |
+| O1 | The exact `RequestType` choice values, as spelled | the `RequestType ne 'Delegate'` filter in `03` §10.3 | you — one query, `08` §1 |
 | O2 | The `OrderStatus` value meaning approved | the export filter in `03` §10.3 | you — same query |
-| O3 | Is `Transfer` provider-facing, and distinct from `Delegate`? | whether the Transfer sheet exists at all | you / process owner |
 | O4 | Has sending employee names, GDIDs and delivery addresses to an external provider been cleared, and under what retention? | go-live, not build | Data Protection / Compliance — see `09` |
-| O5 | Does `simInventoryID` need to reach the provider? | one visible column on four sheets | you — `06` §"Columns" |
 | O6 | Real timing for a 2,000-row export | the value of `varThreshold` | measured on first run, `08` §6 |
 
-O1, O2 and O3 block the handover template and the `typeMap`; nothing else. Build everything else
-first — the flow is written so that an unrecognised `RequestType` is reported as
-`unmapped:<value>` and left unstamped rather than silently lost, which means a wrong guess is
-visible and recoverable instead of expensive.
+Numbering keeps the gaps at O3 and O5 rather than renumbering — both were dropped as part of this
+rebuild (O3 was "is Transfer provider-facing and distinct from Delegate," moot once there's no
+per-type routing; O5 was "does simInventoryID need to reach the provider," moot once it's just
+always a column), and every other document in this folder cites O4/O6 by these exact labels.
+
+O1 and O2 block nothing else in the build — the filter simply won't exclude the right rows until
+they're answered. Build everything else first.

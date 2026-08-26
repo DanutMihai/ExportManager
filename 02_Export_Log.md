@@ -33,7 +33,6 @@ the expression.
 | `outputs('Compose_Flow_Identity')` | `03` §5 | Compose holding the run's URL |
 | `variables('varThreshold')` | `03` §2 | the sync/async row threshold — an **Integer variable**, not a Compose. `Compose_threshold` does not exist; do not reference it |
 | `body('Create_log_item')` | `03` §8 | this list's Create item, for the returned `ID` |
-| `body('Claim_concurrency')` | `03` §10.2b | the earlier running export, for the "already running" message |
 | `outputs('Compose_probe_count')` | `03` §10.5 | row count from the probe |
 | `outputs('Compose_error_detail')` | `03` §16.1 | the extracted failure text |
 | every `variables('var…')` | `03` §2 | the variable table |
@@ -45,28 +44,25 @@ the expression.
 | Column | Type | Notes |
 |---|---|---|
 | **Title** | Single line of text | Required by default. `2026-08-13 14:22 UTC · Romania · Requests · 47 rows` |
-| **RunId** | Single line of text | **Index this.** Also written into the workbook's `_Meta` sheet, so a file in someone's inbox traces back to the run that produced it. |
+| **RunId** | Single line of text | **Index this.** |
 | **ExportType** | Choice: `Inventory`, `Requests` | **Index this.** Room for `Audit` later. |
 | **Country** | Single line of text | **Index this.** |
 | **ActionedBy_email** | Single line of text | Text, not Person — survives someone leaving. |
-| **Status** | Choice — **eight** values, see below | **Index this.** |
-| **ReExport** | Yes/No | Default No. A filterable record of every run that deliberately re-sent already-stamped requests. Free text in `Notes` is not an audit trail. |
+| **Status** | Choice — **seven** values, see below | **Index this.** |
 | **Started** | Date and Time | |
 | **Finished** | Date and Time | Set on every terminal write. Empty only while `Running` or `Queued`. |
 | **DurationSeconds** | Number, 0 decimals | The only way to answer "is `varThreshold` set sensibly". |
-| **Rows_Exported** | Number, 0 decimals | Total written across all sheets. |
-| **Rows_Skipped** | Number, 0 decimals | Requests excluded as unmapped or incomplete. `Rows_Skipped gt 0` is a real view filter; the same information buried in `Notes` is not. |
-| **Rows_Stamped** | Number, 0 decimals | Order List rows marked handed-over. Should equal `Rows_Exported` on a clean Requests run; a gap means the compensation ran. |
-| **Sheet_Breakdown** | Multiple lines, plain text | `New SIM: 12 · Terminate: 3 · Swap: 1`. For Inventory, just the row count. |
+| **Rows_Exported** | Number, 0 decimals | Total rows written. |
+| **Sheet_Breakdown** | Multiple lines, plain text | `Inventory: 47 rows` / `Requests: 12 rows` — a plain row-count string for both export types. |
 | **Delivery** | Choice: `Link returned`, `Emailed`, `None` | Which branch ran. `None` for runs that produced no file — without it a rejected run logs "Link returned" and the field lies exactly where you are trying to read it. |
-| **ExportFile** | Hyperlink | The generated workbook, from the connector's `{Link}`. Empty when no file was produced. |
+| **ExportFile** | Hyperlink | The generated workbook's URL, from `varFileUrl` (`03` §11.3). Empty when no file was produced. |
 | **FlowRun** | Hyperlink | Run history, while it exists. |
-| **Notes** | Multiple lines, plain text | Human-readable summary: skipped RequestIDs, unfilled headers, stamping result, data-quality count. |
+| **Notes** | Multiple lines, plain text | Human-readable summary — mainly the data-quality note on the Inventory path (`03` §13). |
 | **ErrorMessage** | Multiple lines, plain text | Catch path only. Separate so you can filter "is not empty". |
 
-### Status — eight values
+### Status — seven values
 
-The flow writes all eight. **SharePoint rejects a value that is not in the choice list**, so a
+The flow writes all seven. **SharePoint rejects a value that is not in the choice list**, so a
 missing one fails `Update item` on exactly the path where the log matters most.
 
 | Value | Written by | Means |
@@ -74,17 +70,14 @@ missing one fails `Update item` on exactly the path where the log matters most.
 | `Running` | §8 · LOG 1 | The run started. Stays here if it dies without reaching a terminal action. |
 | `Invalid` | §10.1 · LOG 1a | Missing or unrecognised input. A user who picked no country is not a flow failure. |
 | `Unauthorised` | §10.2 · LOG 1b | `ActionedBy` is not a local admin for the requested country. |
-| `Blocked` | §10.2b · LOG 1c | An earlier export for the same country is still running. |
-| `No data` | §10.6, §11.7a, §14.1 · LOG 1d / 1f / 2 | A successful run that produced no file. **Not an error.** |
+| `No data` | §10.6, §14.1 · LOG 1d / 2 | A successful run that produced no file. **Not an error.** |
 | `Queued` | §11.1d · LOG 1e | Async path: the user has been told "we'll email it", the flow is still working. |
 | `Completed` | §14.1 · LOG 2 | A file was produced and delivered. |
 | `Failed` | §16.2 · LOG 3 | The catch scope ran. |
 
-**Why `Unauthorised` and `Blocked` are their own values** rather than all folding into `Invalid`:
-they answer different questions and each has a view. A rejected authorisation attempt is a security
-question. A blocked run is an operational one — if it happens often, two admins are working the same
-country and the process needs a conversation, not a code change. Both are invisible if they are
-filed as "invalid input", which is what a user typing nothing into a picker produces.
+**Why `Unauthorised` is its own value** rather than folding into `Invalid`: it answers a different
+question and has its own view — a rejected authorisation attempt is a security question, not a
+"user forgot to pick something" one. Both are invisible if filed as `Invalid`.
 
 **Plain text, not enhanced rich text** on both multi-line columns — rich text stores HTML, which
 makes exports and API reads unreadable. **Versioning off** — each item is written twice by design.
@@ -106,7 +99,7 @@ questions. Connection identity itself: `08_Build_Checklist.md` §3.
 
 ---
 
-## The nine write points
+## The seven write points
 
 ```
 Trigger · Initialize variables · canonicalise · compose file name
@@ -116,14 +109,10 @@ Scope - Main
   │   ▸ LOG 1a  Update log item invalid       Invalid          §10.1   → Respond → Terminate
   ├ Check authorisation
   │   ▸ LOG 1b  Update log item unauthorised  Unauthorised     §10.2   → Respond → Terminate
-  ├ Claim concurrency
-  │   ▸ LOG 1c  Update log item claim         Blocked          §10.2b  → Respond → Terminate
   ├ Probe
   │   ▸ LOG 1d  Update log item no data       No data          §10.6   → Respond → Terminate
   ├ Async branch
   │   ▸ LOG 1e  Update log item queued        Queued           §11.1d  → Respond, run continues
-  ├ Build · assert · stamp
-  │   ▸ LOG 1f  Update log item nothing written  No data       §11.7a  → Respond → Terminate
   ▸ LOG 2   Update item                       Completed / No data  §14.1   ← last action IN the scope
 Scope - Catch
   ▸ LOG 3   Update item                       Failed           §16.2
@@ -177,13 +166,10 @@ SharePoint **Create item** · Retry **Exponential, 4**. Immediately after: `Set 
 | Country | `@{variables('varCountry')}` |
 | ActionedBy_email | `@{variables('varActionedBy')}` |
 | Status | `Running` |
-| ReExport | `@{variables('varReExport')}` |
 | Started | `@{variables('varStartedUtc')}` |
 | Finished | *leave empty* |
 | DurationSeconds | `0` |
 | Rows_Exported | `0` |
-| Rows_Skipped | `0` |
-| Rows_Stamped | `0` |
 | Sheet_Breakdown | *leave empty* |
 | Delivery | `None` |
 | ExportFile Url | *leave empty* |
@@ -236,13 +222,10 @@ concat('Cannot export: ',
 | Country | `@{variables('varCountry')}` |
 | ActionedBy_email | `@{variables('varActionedBy')}` |
 | Status | `Invalid` |
-| ReExport | `@{variables('varReExport')}` |
 | Started | `@{variables('varStartedUtc')}` |
 | Finished | `@{utcNow()}` |
 | DurationSeconds | `@{div(sub(ticks(utcNow()),ticks(variables('varStartedUtc'))),10000000)}` |
 | Rows_Exported | `0` |
-| Rows_Skipped | `0` |
-| Rows_Stamped | `0` |
 | Sheet_Breakdown | *leave empty* |
 | Delivery | `None` |
 | ExportFile Url | *leave empty* |
@@ -299,13 +282,10 @@ expression. A single one closes the string and the expression will not save.
 | Country | `@{variables('varCountry')}` |
 | ActionedBy_email | `@{variables('varActionedBy')}` |
 | Status | `Unauthorised` |
-| ReExport | `@{variables('varReExport')}` |
 | Started | `@{variables('varStartedUtc')}` |
 | Finished | `@{utcNow()}` |
 | DurationSeconds | `@{div(sub(ticks(utcNow()),ticks(variables('varStartedUtc'))),10000000)}` |
 | Rows_Exported | `0` |
-| Rows_Skipped | `0` |
-| Rows_Stamped | `0` |
 | Sheet_Breakdown | *leave empty* |
 | Delivery | `None` |
 | ExportFile Url | *leave empty* |
@@ -332,75 +312,6 @@ the whole point, and a title you can scan without opening the item is worth the 
 
 ---
 
-# LOG 1c — claim rejected · §10.2b
-
-**Condition:** `greater(length(body('Claim_concurrency')?['value']), 0)`, inside
-`equals(variables('varExportType'),'Requests')`.
-
-### `Set varStatus claim rejected`
-
-```
-Blocked
-```
-
-### `Set varMessage claim rejected`
-
-```
-concat('An export for ', variables('varCountry'), ' is already running — started at ',
-       formatDateTime(first(body('Claim_concurrency')?['value'])?['Created'],'HH:mm'),
-       ' UTC by ', first(body('Claim_concurrency')?['value'])?['ActionedBy_email'],
-       '. Wait for it to finish, then try again.')
-```
-
-`first(…)` is safe here because the branch only runs when the array is non-empty. The `Get items`
-that feeds it must **not** use `Limit Columns by View`, or `Created` and `ActionedBy_email` come
-back blank and the message reads "started at  UTC by ".
-
-### `Update log item claim` — inside `Has log item claim`
-
-| Field | Value |
-|---|---|
-| Id | `@{variables('varLogItemId')}` |
-| Title | `BLOCKED · @{formatDateTime(variables('varStartedUtc'),'yyyy-MM-dd HH:mm')} UTC · @{variables('varCountry')} · Requests` |
-| RunId | `@{variables('varRunId')}` |
-| ExportType | `@{variables('varExportType')}` |
-| Country | `@{variables('varCountry')}` |
-| ActionedBy_email | `@{variables('varActionedBy')}` |
-| Status | `Blocked` |
-| ReExport | `@{variables('varReExport')}` |
-| Started | `@{variables('varStartedUtc')}` |
-| Finished | `@{utcNow()}` |
-| DurationSeconds | `@{div(sub(ticks(utcNow()),ticks(variables('varStartedUtc'))),10000000)}` |
-| Rows_Exported | `0` |
-| Rows_Skipped | `0` |
-| Rows_Stamped | `0` |
-| Sheet_Breakdown | *leave empty* |
-| Delivery | `None` |
-| ExportFile Url | *leave empty* |
-| ExportFile Description | *leave empty* |
-| FlowRun Url | `@{outputs('Compose_Flow_Identity')}` |
-| FlowRun Description | `Flow run` |
-| Notes | `@{concat('Deferred to run ', first(body('Claim_concurrency')?['value'])?['RunId'], ' (log item ', first(body('Claim_concurrency')?['value'])?['ID'], '), started ', first(body('Claim_concurrency')?['value'])?['Created'], ' by ', first(body('Claim_concurrency')?['value'])?['ActionedBy_email'], '.')}` |
-| ErrorMessage | *leave empty* |
-
-**`Notes` names the run it deferred to.** That is what makes a `Blocked` row useful six weeks later:
-you can follow it to the export that did go out, and confirm the requests were handed over once
-rather than not at all.
-
-### `Respond claim rejected`
-
-| Output | Value | Resolves to |
-|---|---|---|
-| status | `@{variables('varStatus')}` | `Blocked` |
-| message | `@{variables('varMessage')}` | "An export for Romania is already running — started at 14:07 UTC by …" |
-| fileUrl | `@{variables('varDownloadUrl')}` | empty |
-| shareUrl | `@{variables('varShareUrl')}` | empty |
-| rows | `variables('varRowsExported')` | `0` |
-
-### `Set varResponded claim` → `true` · `Terminate claim rejected` → **Cancelled**
-
----
-
 # LOG 1d — no data · §10.6
 
 **Condition:** the FALSE branch of `greater(outputs('Compose_probe_count'), 0)`.
@@ -411,17 +322,15 @@ rather than not at all.
 concat('No SIMs found for ', variables('varCountry'), '.')
 ```
 
-### `Set varMessage requests none` *(Requests branch, after the diagnostic queries)*
+### `Set varMessage requests none` *(Requests branch)*
 
 ```
-if(equals(length(body('Get_requests_diagnostic')?['value']),0),
-   concat('No approved requests for ', variables('varCountry'), '.'),
-if(equals(length(body('Filter_array_exported')),length(body('Get_requests_diagnostic')?['value'])),
-   concat('All ', length(body('Get_requests_diagnostic')?['value']), ' approved requests for ', variables('varCountry'), ' were already sent to the provider. Use Re-export if the provider needs the file again.'),
-if(equals(length(body('Filter_array_delegate')),length(body('Get_requests_diagnostic')?['value'])),
-   concat(length(body('Filter_array_delegate')), ' approved requests for ', variables('varCountry'), ', none require provider action.'),
-   concat('Nothing new to send for ', variables('varCountry'), ' — ', length(body('Filter_array_exported')), ' already sent, ', length(body('Filter_array_delegate')), ' are Delegate.'))))
+concat('No approved requests found for ', variables('varCountry'), '.')
 ```
+
+Both export types get the same one-line shape now — the filter already says exactly what "nothing"
+means (`RequestType ne 'Delegate'` is baked into the query itself, `03` §10.3), so there's nothing
+left to diagnose with a second query the way v3 did.
 
 ### `Set varStatus no data`
 
@@ -440,13 +349,10 @@ No data
 | Country | `@{variables('varCountry')}` |
 | ActionedBy_email | `@{variables('varActionedBy')}` |
 | Status | `No data` |
-| ReExport | `@{variables('varReExport')}` |
 | Started | `@{variables('varStartedUtc')}` |
 | Finished | `@{utcNow()}` |
 | DurationSeconds | `@{div(sub(ticks(utcNow()),ticks(variables('varStartedUtc'))),10000000)}` |
 | Rows_Exported | `0` |
-| Rows_Skipped | `0` |
-| Rows_Stamped | `0` |
 | Sheet_Breakdown | *leave empty* |
 | Delivery | `None` |
 | ExportFile Url | *leave empty* |
@@ -456,15 +362,12 @@ No data
 | Notes | `@{variables('varMessage')}` |
 | ErrorMessage | *leave empty* |
 
-`Notes` gets the same text the user saw, which is exactly the diagnostic you want — "all 12 already
-sent" and "none require provider action" are different situations with the same row count.
-
 ### `Respond no data`
 
 | Output | Value | Resolves to |
 |---|---|---|
 | status | `@{variables('varStatus')}` | `No data` |
-| message | `@{variables('varMessage')}` | one of the four diagnostic sentences |
+| message | `@{variables('varMessage')}` | "No approved requests found for Romania." |
 | fileUrl | `@{variables('varDownloadUrl')}` | empty |
 | shareUrl | `@{variables('varShareUrl')}` | empty |
 | rows | `variables('varRowsExported')` | `0` |
@@ -507,13 +410,10 @@ is *at least* that, not exactly.
 | Country | `@{variables('varCountry')}` |
 | ActionedBy_email | `@{variables('varActionedBy')}` |
 | Status | `Queued` |
-| ReExport | `@{variables('varReExport')}` |
 | Started | `@{variables('varStartedUtc')}` |
 | Finished | ***leave empty*** — the run is still going |
 | DurationSeconds | `0` |
 | Rows_Exported | `0` |
-| Rows_Skipped | `0` |
-| Rows_Stamped | `0` |
 | Sheet_Breakdown | *leave empty* |
 | Delivery | `Emailed` |
 | ExportFile Url | *leave empty* |
@@ -538,81 +438,6 @@ runs" view finds it precisely because `Finished` is empty.
 | rows | `variables('varRowsExported')` | `0` — nothing written yet |
 
 ### `Set varResponded queued` → `true` · **no Terminate** — the flow continues to §11.1g
-
----
-
-# LOG 1f — nothing written · §11.7a
-
-Requests only. The probe found rows, a file was created, and the script routed **every** one of them
-to `skipped`. The workbook now contains nothing but the Instructions sheet, because finalize deleted
-every empty tab.
-
-**Condition:** `and(equals(variables('varExportType'),'Requests'), equals(variables('varRowsExported'), 0))`
-
-### `Set varStatus nothing written`
-
-```
-No data
-```
-
-### `Set varMessage nothing written`
-
-```
-concat('Nothing could be sent for ', variables('varCountry'), '. All ',
-       variables('varRowsSkipped'), ' approved request(s) were rejected before handover. ',
-       variables('varNotes'))
-```
-
-`varNotes` already holds the RequestIDs and reasons from §11.7, so the admin gets "1201 unmapped:
-Upgrade device, 1355 missing: phoneNr,newPlan" without opening the log.
-
-### Also on this path, before the log write
-
-`Delete empty export file` → `Set varFileCreated false` → `Set varFileUrl empty`. The file must be
-gone *and* the variable cleared, or the table below writes a link to a file that no longer exists.
-
-### `Update log item nothing written` — inside `Has log item nothing written`
-
-| Field | Value |
-|---|---|
-| Id | `@{variables('varLogItemId')}` |
-| Title | `NO DATA · @{formatDateTime(variables('varStartedUtc'),'yyyy-MM-dd HH:mm')} UTC · @{variables('varCountry')} · Requests · all @{variables('varRowsSkipped')} rejected` |
-| RunId | `@{variables('varRunId')}` |
-| ExportType | `@{variables('varExportType')}` |
-| Country | `@{variables('varCountry')}` |
-| ActionedBy_email | `@{variables('varActionedBy')}` |
-| Status | `No data` |
-| ReExport | `@{variables('varReExport')}` |
-| Started | `@{variables('varStartedUtc')}` |
-| Finished | `@{utcNow()}` |
-| DurationSeconds | `@{div(sub(ticks(utcNow()),ticks(variables('varStartedUtc'))),10000000)}` |
-| Rows_Exported | `0` |
-| Rows_Skipped | `@{variables('varRowsSkipped')}` |
-| Rows_Stamped | `0` |
-| Sheet_Breakdown | *leave empty* |
-| Delivery | `None` |
-| ExportFile Url | *leave empty — the file was deleted* |
-| ExportFile Description | *leave empty* |
-| FlowRun Url | `@{outputs('Compose_Flow_Identity')}` |
-| FlowRun Description | `Flow run` |
-| Notes | `@{variables('varNotes')}` |
-| ErrorMessage | *leave empty* |
-
-**`Rows_Skipped` is the field that matters here**, and it is why the column exists. This row appears
-in the "Needs admin action" view, the requests stay unstamped, and the next export picks them up once
-the data is fixed.
-
-### `Respond nothing written`
-
-| Output | Value | Resolves to |
-|---|---|---|
-| status | `@{variables('varStatus')}` | `No data` |
-| message | `@{variables('varMessage')}` | "Nothing could be sent for Romania. All 6 approved request(s) were rejected…" |
-| fileUrl | `@{variables('varDownloadUrl')}` | empty |
-| shareUrl | `@{variables('varShareUrl')}` | empty |
-| rows | `variables('varRowsExported')` | `0` |
-
-### `Set varResponded nothing written` → `true` · `Terminate nothing written` → **Succeeded**
 
 ---
 
@@ -641,13 +466,10 @@ concat('Export ready: ', variables('varRowsExported'), ' rows. ', variables('var
 | Country | `@{variables('varCountry')}` |
 | ActionedBy_email | `@{variables('varActionedBy')}` |
 | Status | `@{if(equals(variables('varRowsExported'),0),'No data',variables('varStatus'))}` |
-| ReExport | `@{variables('varReExport')}` |
 | Started | `@{variables('varStartedUtc')}` |
 | Finished | `@{utcNow()}` |
 | DurationSeconds | `@{div(sub(ticks(utcNow()),ticks(variables('varStartedUtc'))),10000000)}` |
 | Rows_Exported | `@{variables('varRowsExported')}` |
-| Rows_Skipped | `@{variables('varRowsSkipped')}` |
-| Rows_Stamped | `@{variables('varStampedCount')}` |
 | Sheet_Breakdown | `@{variables('varSheetBreakdown')}` |
 | Delivery | `@{if(equals(variables('varRowsExported'),0),'None',if(variables('varAsync'),'Emailed','Link returned'))}` |
 | ExportFile Url | `@{variables('varFileUrl')}` |
@@ -657,23 +479,22 @@ concat('Export ready: ', variables('varRowsExported'), ' rows. ', variables('var
 | Notes | `@{variables('varNotes')}` |
 | ErrorMessage | *leave empty* |
 
-**`Delivery` comes from `varAsync`, not from a row count.** The async decision was made on the
-*probe count*; rows written is lower after Delegate and skipped rows come out. A probe of 2,100 that
-writes 1,950 would log "Link returned" for a run that emailed — misreporting exactly at the boundary
-the field exists to help you tune.
+**`Delivery` comes from `varAsync`, not from a row count.** The sync/async decision was locked in at
+§11.1, before the response went out — a run that already responded `Queued` must log `Emailed`
+regardless of the final row count, or the field would misreport the delivery it actually used.
 
 **`DurationSeconds` measures to here**, which on the async path is after the email. That is the
 number you want: it is how long the work actually took.
 
 `varShareUrl` goes to the email and the response, not to the log — the sharing link is a delivery
-artefact, and `{Link}` is the stable address of the file itself.
+artefact, and `varFileUrl` is the stable address of the file itself.
 
 ### `Respond ready` — sync path only, §14
 
 | Output | Value | Resolves to |
 |---|---|---|
 | status | `@{variables('varStatus')}` | `Completed` |
-| message | `@{variables('varMessage')}` | "Export ready: 47 rows. New SIM: 40 · Terminate: 7" |
+| message | `@{variables('varMessage')}` | "Export ready: 47 rows. Requests: 47 rows" |
 | fileUrl | `@{variables('varDownloadUrl')}` | the `download.aspx` URL — what `Launch()` opens |
 | shareUrl | `@{variables('varShareUrl')}` | the org-scoped sharing link, or empty if the action was blocked |
 | rows | `variables('varRowsExported')` | `47` |
@@ -703,13 +524,10 @@ the reference is unresolvable and the catch's own Update item fails.
 | Country | `@{variables('varCountry')}` |
 | ActionedBy_email | `@{variables('varActionedBy')}` |
 | Status | `Failed` |
-| ReExport | `@{variables('varReExport')}` |
 | Started | `@{variables('varStartedUtc')}` |
 | Finished | `@{utcNow()}` |
 | DurationSeconds | `@{div(sub(ticks(utcNow()),ticks(variables('varStartedUtc'))),10000000)}` |
 | Rows_Exported | `@{variables('varRowsExported')}` |
-| Rows_Skipped | `@{variables('varRowsSkipped')}` |
-| Rows_Stamped | `@{variables('varStampedCount')}` |
 | Sheet_Breakdown | `@{variables('varSheetBreakdown')}` |
 | Delivery | `None` |
 | ExportFile Url | *leave empty — the partial file is deleted* |
@@ -719,10 +537,8 @@ the reference is unresolvable and the catch's own Update item fails.
 | Notes | `@{variables('varNotes')}` |
 | ErrorMessage | `@{outputs('Compose_error_detail')}` |
 
-**The counters keep whatever they reached before the failure.** That is how far the run got, and it
-is the number that tells you whether anything was written. `Rows_Stamped` in particular: a non-zero
-value on a `Failed` row means §16.6's compensation had work to do — and `Notes` will say whether it
-succeeded.
+**`Rows_Exported` keeps whatever it reached before the failure.** That is how far the run got, and
+it is the number that tells you whether anything was written.
 
 **`ErrorMessage` is the extracted failure, not `string(result('Scope_-_Main'))`.** `result()` returns
 every action's result including the `Get items` bodies — tens of megabytes of JSON on a 60,000-row
@@ -732,12 +548,12 @@ fills the column with an unreadable wall.
 ### `Set varMessage failed` — set in the catch, before `Respond failed`
 
 ```
-concat('The export for ', variables('varCountry'), ' failed and no file was produced. Nothing has been sent to a provider, and you can safely run it again. Reference ', variables('varRunId'), '.')
+concat('The export for ', variables('varCountry'), ' failed and no file was produced. You can safely run it again. Reference ', variables('varRunId'), '.')
 ```
 
-"You can safely run it again" is a claim the design earns: the partial file is deleted (§16.5) and
-any stamps this run applied are cleared (§16.6). Do not soften it — an admin who does not know
-whether a re-run will double-send will call someone instead.
+"You can safely run it again" is a claim the design earns: the partial file is deleted (§16.5), and
+since neither export path writes back to its source list, there is nothing left over that a re-run
+could conflict with.
 
 ### `Respond failed` — only when `equals(variables('varResponded'), false)`
 
@@ -765,9 +581,7 @@ One table, so the PowerApps side can be written without reading the flow.
 |---|---|---|---|---|---|
 | §10.1 invalid | `Invalid` | — | — | 0 | Notify · Error |
 | §10.2 not a local admin | `Unauthorised` | — | — | 0 | Notify · Error |
-| §10.2b already running | `Blocked` | — | — | 0 | Notify · Warning |
 | §10.6 nothing to export | `No data` | — | — | 0 | Notify · Warning |
-| §11.7a all rejected | `No data` | — | — | 0 | Notify · Warning |
 | §11.1 async started | `Queued` | — | — | 0 | Notify · Information |
 | §14 ready | `Completed` | ✔ | ✔ | n | `Launch(fileUrl)` |
 | §16.3 failed | `Failed` | — | — | 0 or partial | Notify · Error |
@@ -777,7 +591,6 @@ Switch(gblExport.status,
   "Completed",    Launch(gblExport.fileUrl),
   "Queued",       Notify(gblExport.message, NotificationType.Information),
   "No data",      Notify(gblExport.message, NotificationType.Warning),
-  "Blocked",      Notify(gblExport.message, NotificationType.Warning),
   "Invalid",      Notify(gblExport.message, NotificationType.Error),
   "Unauthorised", Notify(gblExport.message, NotificationType.Error),
                   Notify(gblExport.message, NotificationType.Error)
@@ -797,16 +610,12 @@ adds. Full snippet with `IfError` and the busy-state binding in `03` §15.
 | **Stuck runs** | (`Status = Running` OR `Status = Queued`) AND `Started < [Today]-1` | Runs that reached neither terminal action. Nothing else surfaces these. `Queued` belongs here: an async run still queued a day later is stuck. |
 | **No data** | `Status = No data` | A country repeatedly exporting nothing usually means requests aren't being approved, not that the export is broken. |
 | **Rejected attempts** | `Status = Unauthorised` | The security view. Should be empty. If it isn't, the answer is in `ActionedBy_email` and `Country`. |
-| **Blocked** | `Status = Blocked` | Two admins working the same country. Frequent hits are a process conversation, not a bug. |
-| **Needs admin action** | `Rows_Skipped > 0` | Requests that were approved but not sent. They sit unstamped and reappear until someone fixes the data. |
-| **Re-exports** | `ReExport = Yes` | Every deliberate re-send of already-handed-over requests, with who and when. |
-| **Stamp mismatches** | `Rows_Stamped ≠ Rows_Exported` AND `ExportType = Requests` | Should never have rows. If it does, §12 or §16.6 did something unexpected. |
-| **By country, last 30 days** | grouped on Country, `Started >= [Today]-30` | Volume per market, and the double-handover detector of last resort. |
+| **By country, last 30 days** | grouped on Country, `Started >= [Today]-30` | Volume per market. |
 | **Threshold tuning** | `Status = Completed`, showing Rows_Exported and DurationSeconds, sorted by rows | Answers `00`'s open item O6 with data instead of a guess. |
 
 Default view sorted by `Started` descending, showing Status, Country, ExportType, Rows_Exported,
-Rows_Skipped, Delivery, ActionedBy_email, ExportFile. Keep `Notes` and `ErrorMessage` out of list
-views — several hundred characters destroys the layout, and they read fine in the item form.
+Delivery, ActionedBy_email, ExportFile. Keep `Notes` and `ErrorMessage` out of list views — several
+hundred characters destroys the layout, and they read fine in the item form.
 
 ---
 
@@ -815,13 +624,12 @@ views — several hundred characters destroys the layout, and they read fine in 
 The catch scope logs and responds, but a log with nobody reading it prevents nothing.
 
 Build a **second, scheduled flow** — not an email inside the catch. Once each weekday morning it
-runs three queries against this list and mails a digest to `simri_SupportEmail`:
+runs two queries against this list and mails a digest to `simri_SupportEmail`:
 
 | Query | Why |
 |---|---|
 | `Status eq 'Failed' and Started gt '<yesterday>'` | the obvious one |
 | `(Status eq 'Running' or Status eq 'Queued') and Started lt '<yesterday>'` | the runs that reached neither terminal action — an email inside the catch **cannot** catch these, because the catch never ran |
-| `Rows_Skipped gt 0 and Started gt '<last 7 days>'` | approved requests that are not reaching providers |
 
 Send "nothing to report" on a clean day too. A digest that only arrives when something is wrong is
 indistinguishable from a digest that has stopped working.
@@ -832,7 +640,7 @@ indistinguishable from a digest that has stopped working.
 
 The log itself: keep it. At a few runs a day it stays small for years, and it is the audit trail. If
 it ever needs trimming, delete `Status = Completed` items older than two years and leave every
-failure, rejection, block and re-export intact — those are the ones anyone comes back to.
+failure and rejection intact — those are the ones anyone comes back to.
 
 The **files** the log points at are a different question, and a more urgent one: they contain
 employee names, GDIDs and delivery addresses. `/SIM Exports/Files` gets a 90-day retention policy —
